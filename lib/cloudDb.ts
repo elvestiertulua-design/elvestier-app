@@ -74,6 +74,7 @@ export async function getDbData() {
       }
     } catch (e) {
       console.error('Error al leer de Vercel KV en la nube:', e)
+      throw new Error('No se pudo conectar a la base de datos principal en la nube.')
     }
   }
 
@@ -149,6 +150,7 @@ export async function saveDbData(data: any) {
       })
     } catch (e) {
       console.error('Error al guardar en Vercel KV en la nube:', e)
+      throw new Error('Fallo crítico al guardar en la nube. Operación abortada para evitar pérdida de datos.')
     }
   }
 

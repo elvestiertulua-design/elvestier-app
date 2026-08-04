@@ -1,0 +1,1 @@
+const Redis = require('ioredis'); const redis = new Redis('rediss://default:36jLcgZDCmiaPVw8Azlry6ZrT1b91Cgt@megabright-superneat-design-36118.db.redis.io:10147'); redis.get('elvestier_db').then(r = const p = JSON.parse(r); console.log('Operadoras:', p.operadoras?.length, 'Recibos:', p.recibos?.length); process.exit(0); })  
