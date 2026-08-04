@@ -472,11 +472,40 @@ export default function OperadorasPage() {
                         <div style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: '#64748b' }}>
                           Terminado el: {r.fechaTerminado ? formatDateTime(r.fechaTerminado) : 'Sin fecha registrada'}
                         </div>
-                        <div style={{ marginTop: '0.75rem', fontSize: '0.9rem', color: '#475569' }}>
-                          Total prendas trabajadas: <strong>{misPrendas.length || r.totalPrendas || 1}</strong>
+                        
+                        <div style={{ marginBottom: '1rem', marginTop: '1rem' }}>
+                          <strong style={{ fontSize: '0.9rem', color: '#64748b' }}>DETALLE DEL TRABAJO:</strong>
+                          <div style={{ backgroundColor: '#f8fafc', padding: '1rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginTop: '0.5rem' }}>
+                            {Array.isArray(r.prendas) && r.prendas.length > 0 ? (
+                              <ul style={{ margin: 0, paddingLeft: '1.2rem', color: '#334155' }}>
+                                {r.prendas.map((p: any, idx: number) => {
+                                  const isMainOp = r.operadoraId === currentOp?.id || (r.operaria && r.operaria.toLowerCase() === selectedOperaria.toLowerCase())
+                                  const isDelegatedToMe = p.operadoraId === currentOp?.id
+                                  const isDelegatedToSomeoneElse = p.operadoraId && p.operadoraId !== currentOp?.id
+                                  
+                                  if (isMainOp && isDelegatedToSomeoneElse) return null;
+                                  if (!isMainOp && !isDelegatedToMe) return null;
+
+                                  return (
+                                    <li key={idx} style={{ marginBottom: '0.5rem', borderBottom: '1px solid #e2e8f0', paddingBottom: '0.5rem' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
+                                        <div>
+                                          <strong>{p.cantidad}x</strong> {p.descripcion} - <strong>${(Number(p.valorTotal) || Number(p.valorUnitario) || 0).toLocaleString('es-CO')}</strong>
+                                          {isDelegatedToMe && !isMainOp && <span style={{ display: 'block', color: '#0284c7', fontSize: '0.75rem', marginTop: '0.2rem' }}>↳ Asignado a ti por {p.asignadoPorNombre || 'Administración'}</span>}
+                                        </div>
+                                      </div>
+                                    </li>
+                                  )
+                                })}
+                              </ul>
+                            ) : (
+                              <span style={{ color: '#64748b', fontStyle: 'italic' }}>{r.descripcion || 'Sin prendas'}</span>
+                            )}
+                          </div>
                         </div>
-                        <div style={{ marginTop: '0.2rem', fontSize: '0.9rem', color: '#16a34a', fontWeight: 'bold' }}>
-                          Valor Total: ${displayTotal.toLocaleString('es-CO')}
+
+                        <div style={{ marginTop: '0.2rem', fontSize: '1rem', color: '#16a34a', fontWeight: 'bold' }}>
+                          Total Pagado: ${displayTotal.toLocaleString('es-CO')}
                         </div>
                       </div>
                       )
