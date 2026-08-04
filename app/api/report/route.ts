@@ -75,7 +75,7 @@ export async function GET(request: Request) {
             'Detalle': p.descripcion || 'Arreglos',
             'Valor Prenda ($)': Number(p.valorTotal || p.valorUnitario || 0),
             'Estado': estadoStr,
-            'Fecha de Terminado': fechaTerminadoStr,
+            'Fecha Terminado': fechaTerminadoStr,
             'Notas': isDelegated ? `Delegado por ${p.asignadoPorNombre || baseName}` : ''
           })
         })
@@ -98,7 +98,7 @@ export async function GET(request: Request) {
           'Detalle': r.descripcion || 'Arreglos',
           'Valor Prenda ($)': Number(r.valorPagar || r.granTotal || 0),
           'Estado': estadoStr,
-          'Fecha de Terminado': fechaTerminadoStr,
+          'Fecha Terminado': fechaTerminadoStr,
           'Notas': ''
         })
       }

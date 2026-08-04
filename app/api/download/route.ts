@@ -51,7 +51,7 @@ export async function GET() {
           }).join('\n')
         : r.descripcion || '',
       'Estado': r.estado || 'Pendiente',
-      'Fecha de Terminado': r.fechaTerminado ? formatDateTime(r.fechaTerminado) : '',
+      'Fecha Terminado': r.fechaTerminado ? formatDateTime(r.fechaTerminado) : '',
       'Observaciones': r.observaciones || ''
     }))
 
