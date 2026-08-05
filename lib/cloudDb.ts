@@ -61,20 +61,21 @@ export async function getDbData() {
         cache: 'no-store',
         signal: AbortSignal.timeout(4000)
       })
-      if (response.ok) {
-        const resJson = await response.json()
-        if (resJson.result) {
-          const parsed = typeof resJson.result === 'string' ? JSON.parse(resJson.result) : resJson.result
-          return {
-            operadoras: parsed.operadoras || initialDbData.operadoras,
-            recibos: parsed.recibos || [],
-            asistencia: parsed.asistencia || []
-          }
+      if (!response.ok) {
+        throw new Error(`Error en Vercel KV: ${response.status} ${response.statusText}`)
+      }
+      const resJson = await response.json()
+      if (resJson.result) {
+        const parsed = typeof resJson.result === 'string' ? JSON.parse(resJson.result) : resJson.result
+        return {
+          operadoras: parsed.operadoras || initialDbData.operadoras,
+          recibos: parsed.recibos || [],
+          asistencia: parsed.asistencia || []
         }
       }
     } catch (e) {
       console.error('Error al leer de Vercel KV en la nube:', e)
-      throw new Error('No se pudo conectar a la base de datos principal en la nube.')
+      throw new Error('No se pudo conectar a la base de datos principal en la nube. ' + (e instanceof Error ? e.message : ''))
     }
   }
 
@@ -139,7 +140,7 @@ export async function saveDbData(data: any) {
   // Guardar en la Nube si las llaves de Vercel KV (REST) están configuradas
   if (kvUrl && kvToken) {
     try {
-      await fetch(`${kvUrl}/set/elvestier_db`, {
+      const response = await fetch(`${kvUrl}/set/elvestier_db`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${kvToken}`,
@@ -148,9 +149,12 @@ export async function saveDbData(data: any) {
         body: JSON.stringify(JSON.stringify(cleanData)),
         signal: AbortSignal.timeout(4000)
       })
+      if (!response.ok) {
+        throw new Error(`Error en Vercel KV: ${response.status} ${response.statusText}`)
+      }
     } catch (e) {
       console.error('Error al guardar en Vercel KV en la nube:', e)
-      throw new Error('Fallo crítico al guardar en la nube. Operación abortada para evitar pérdida de datos.')
+      throw new Error('Fallo crítico al guardar en la nube. ' + (e instanceof Error ? e.message : ''))
     }
   }
 
