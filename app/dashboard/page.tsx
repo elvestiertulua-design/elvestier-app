@@ -102,6 +102,11 @@ function getTodayStr() {
   return `${yyyy}-${mm}-${dd}`
 }
 
+function getReciboDate(r: any) {
+  const d = r.fechaRegistro || r.fechaRecibido || r.fecha || ''
+  return d.substring(0, 10)
+}
+
 const COLORS = ['#f472b6', '#3b82f6', '#10b981', '#f59e0b']
 
 export default function DashboardPage() {
@@ -127,13 +132,24 @@ export default function DashboardPage() {
   const selectedYear = parseInt(yearStr)
   const selectedMonthNum = parseInt(monthStr) - 1 // 0-indexed
 
+  // Sort and Tag Recibos for New vs Returning Clients
+  const sortedRecibos = [...recibos].sort((a, b) => getReciboDate(a).localeCompare(getReciboDate(b)))
+  const seenClients = new Set<string>()
+  
+  const taggedRecibos = sortedRecibos.map(r => {
+    const clientKey = (r.cliente || r.clienteNombre || '').toLowerCase().trim()
+    const isNew = clientKey && !seenClients.has(clientKey)
+    if (clientKey) seenClients.add(clientKey)
+    return { ...r, isNewClient: !!isNew }
+  })
+
   // Current Month Data
-  const currentMonthRecibos = recibos.filter((r) => r.fechaRecibido && r.fechaRecibido.startsWith(selectedMonth))
+  const currentMonthRecibos = taggedRecibos.filter((r) => getReciboDate(r).startsWith(selectedMonth))
   
   // Previous Month Data
   const prevDate = new Date(selectedYear, selectedMonthNum - 1, 1)
   const prevMonthStr = `${prevDate.getFullYear()}-${String(prevDate.getMonth() + 1).padStart(2, '0')}`
-  const prevMonthRecibos = recibos.filter((r) => r.fechaRecibido && r.fechaRecibido.startsWith(prevMonthStr))
+  const prevMonthRecibos = taggedRecibos.filter((r) => getReciboDate(r).startsWith(prevMonthStr))
 
   // Daily Data Aggregation
   const daysInMonth = new Date(selectedYear, selectedMonthNum + 1, 0).getDate()
@@ -141,27 +157,35 @@ export default function DashboardPage() {
   
   for (let i = 1; i <= daysInMonth; i++) {
     const dateStr = `${selectedMonth}-${String(i).padStart(2, '0')}`
-    const dailyRecibos = currentMonthRecibos.filter((r) => r.fechaRecibido === dateStr)
-    const totalDinero = dailyRecibos.reduce((acc, r) => acc + (Number(r.granTotal) || 0), 0)
+    const dailyRecibos = currentMonthRecibos.filter((r) => getReciboDate(r) === dateStr)
+    const totalDinero = dailyRecibos.reduce((acc, r) => acc + (Number(r.valorPagar || r.granTotal) || 0), 0)
+    
+    const totalClientes = dailyRecibos.length
+    const clientesNuevos = dailyRecibos.filter(r => r.isNewClient).length
+    const clientesRecurrentes = totalClientes - clientesNuevos
+
     dailyData.push({ 
       dia: String(i), 
       dinero: totalDinero, 
-      clientes: dailyRecibos.length 
+      clientesTotales: totalClientes,
+      clientesNuevos: clientesNuevos,
+      clientesRecurrentes: clientesRecurrentes
     })
   }
 
   // Totals
-  const currentTotalDinero = currentMonthRecibos.reduce((acc, r) => acc + (Number(r.granTotal) || 0), 0)
-  const prevTotalDinero = prevMonthRecibos.reduce((acc, r) => acc + (Number(r.granTotal) || 0), 0)
+  const currentTotalDinero = currentMonthRecibos.reduce((acc, r) => acc + (Number(r.valorPagar || r.granTotal) || 0), 0)
+  const prevTotalDinero = prevMonthRecibos.reduce((acc, r) => acc + (Number(r.valorPagar || r.granTotal) || 0), 0)
   
   const currentTotalClientes = currentMonthRecibos.length
   const prevTotalClientes = prevMonthRecibos.length
 
   // Today
   const todayStr = getTodayStr()
-  const todayRecibos = recibos.filter(r => r.fechaRecibido === todayStr)
-  const todayDinero = todayRecibos.reduce((acc, r) => acc + (Number(r.granTotal) || 0), 0)
+  const todayRecibos = taggedRecibos.filter(r => getReciboDate(r) === todayStr)
+  const todayDinero = todayRecibos.reduce((acc, r) => acc + (Number(r.valorPagar || r.granTotal) || 0), 0)
   const todayClientes = todayRecibos.length
+  const todayNuevos = todayRecibos.filter(r => r.isNewClient).length
 
   // Weekly Averages (assuming 4.33 weeks per month)
   const avgWeeklyDinero = currentTotalDinero / 4.33
@@ -190,7 +214,7 @@ export default function DashboardPage() {
                 <p style={{ margin: 0, color: '#64748b' }}>Estadísticas y Análisis</p>
               </div>
             </div>
-            <div className="header-right" style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+            <div className="header-right" style={{ display: 'flex', gap: '1rem', alignItems: 'center', flexWrap: 'wrap' }}>
               <input 
                 type="month" 
                 value={selectedMonth} 
@@ -198,6 +222,7 @@ export default function DashboardPage() {
                 className="form-input"
                 style={{ width: 'auto' }}
               />
+              <a href="/api/download" className="btn btn-primary" download>Descargar Excel</a>
               <a href="/" className="btn btn-secondary">Volver al Inicio</a>
             </div>
           </div>
@@ -212,7 +237,9 @@ export default function DashboardPage() {
                 <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '1rem', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
                   <h3 style={{ margin: 0, color: '#64748b', fontSize: '1rem' }}>Hoy ({todayStr})</h3>
                   <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#10b981' }}>${todayDinero.toLocaleString('es-CO')}</div>
-                  <div style={{ fontSize: '1rem', color: '#334155' }}>{todayClientes} clientes nuevos</div>
+                  <div style={{ fontSize: '1rem', color: '#334155' }}>
+                    {todayClientes} clientes totales ({todayNuevos} nuevos)
+                  </div>
                 </div>
 
                 <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '1rem', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
@@ -233,7 +260,7 @@ export default function DashboardPage() {
                 
                 {/* Daily Money Chart */}
                 <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '1rem', border: '1px solid #e2e8f0' }}>
-                  <h3 style={{ marginTop: 0, color: '#334155', marginBottom: '1.5rem' }}>Ingresos Diarios (Mes Actual)</h3>
+                  <h3 style={{ marginTop: 0, color: '#334155', marginBottom: '1.5rem' }}>Historial de Dinero por Día (Mes Actual)</h3>
                   <div style={{ width: '100%', height: 300 }}>
                     <ResponsiveContainer>
                       <LineChart data={dailyData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
@@ -257,7 +284,9 @@ export default function DashboardPage() {
                         <XAxis dataKey="dia" />
                         <YAxis width={40} />
                         <Tooltip labelFormatter={(l) => `Día ${l}`} />
-                        <Bar dataKey="clientes" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Clientes Nuevos" />
+                        <Legend />
+                        <Bar dataKey="clientesNuevos" stackId="a" fill="#10b981" radius={[0, 0, 0, 0]} name="Nuevos" />
+                        <Bar dataKey="clientesRecurrentes" stackId="a" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Recurrentes" />
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
