@@ -1,23 +1,35 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 
 function formatDateTime(dateStr: string) {
   if (!dateStr) return ''
-  const parts = dateStr.split('T')
-  if (parts.length !== 2) return dateStr
-  const datePart = parts[0]
-  const timeParts = parts[1].split(':')
-  let hours = parseInt(timeParts[0], 10)
-  const minutes = timeParts[1]
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  
+  // Convert to UTC-5 (Colombia)
+  const offset = -5 * 60 * 60 * 1000
+  const localDate = new Date(d.getTime() + offset)
+  
+  const yyyy = localDate.getUTCFullYear()
+  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(localDate.getUTCDate()).padStart(2, '0')
+  
+  let hours = localDate.getUTCHours()
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   const ampm = hours >= 12 ? 'PM' : 'AM'
   hours = hours % 12
   hours = hours ? hours : 12
-  return `${datePart} a las ${hours}:${minutes} ${ampm}`
+  
+  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
 }
 
-export default function AsistenciaPage() {
-  const [operariaNombre, setOperariaNombre] = useState<string>('')
+function AuxiliaresContent() {
+  const searchParams = useSearchParams()
+  const token = searchParams.get('token')
+
+  const [auxiliares, setAuxiliares] = useState<any[]>([])
   const [asistencia, setAsistencia] = useState<any[]>([])
   const [recibos, setRecibos] = useState<any[]>([])
   const [loading, setLoading] = useState<boolean>(true)
@@ -26,32 +38,58 @@ export default function AsistenciaPage() {
   const [filterRecibido, setFilterRecibido] = useState('')
   const [filterEntrega, setFilterEntrega] = useState('')
 
+  const [errorDb, setErrorDb] = useState<string | null>(null)
+  const [tokenError, setTokenError] = useState(false)
+  const [selectedAuxiliar, setSelectedAuxiliar] = useState<string>('')
+  const [currentDate, setCurrentDate] = useState<string>('')
+
   const loadData = () => {
     setLoading(true)
     fetch('/api/db')
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('Error de conexión a la base de datos')
+        return res.json()
+      })
       .then((data) => {
+        setErrorDb(null)
         setAsistencia(data.asistencia || [])
         setRecibos(data.recibos || [])
+        
+        const loadedAuxiliares = data.auxiliares || []
+        setAuxiliares(loadedAuxiliares)
+
+        if (token) {
+          const aux = loadedAuxiliares.find((a: any) => a.token === token && a.activa)
+          if (aux) {
+            setSelectedAuxiliar(aux.nombre)
+          } else {
+            setTokenError(true)
+          }
+        } else {
+          setTokenError(true)
+        }
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+        setErrorDb('Error al cargar la base de datos. Por favor recarga la página.')
+        console.error(err)
+      })
       .finally(() => setLoading(false))
   }
 
   useEffect(() => {
     loadData()
-  }, [])
+    // Set current date
+    const options: Intl.DateTimeFormatOptions = { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' };
+    const dateStr = new Date().toLocaleDateString('es-ES', options);
+    setCurrentDate(dateStr.charAt(0).toUpperCase() + dateStr.slice(1));
+  }, [token])
 
-  const nombreLimpio = operariaNombre.trim().toLowerCase()
-  const openShift = nombreLimpio 
-    ? asistencia.find(a => (a.operariaNombre || '').toLowerCase() === nombreLimpio && !a.horaSalida)
+  const openShift = selectedAuxiliar
+    ? asistencia.find(a => (a.operariaNombre || '').toLowerCase() === selectedAuxiliar.toLowerCase() && !a.horaSalida)
     : null
 
   const handleEntrada = async () => {
-    if (!operariaNombre.trim()) {
-      alert("Por favor ingresa tu nombre primero.")
-      return
-    }
+    if (!selectedAuxiliar) return
     if (openShift) {
       alert("Ya tienes un turno abierto. Por favor registra tu salida primero.")
       return
@@ -59,8 +97,8 @@ export default function AsistenciaPage() {
     const now = new Date()
     const newRecord = {
       id: Date.now().toString(),
-      operariaId: operariaNombre.trim().toLowerCase(), // Use name as ID since we don't have IDs
-      operariaNombre: operariaNombre.trim(),
+      operariaId: selectedAuxiliar.toLowerCase(),
+      operariaNombre: selectedAuxiliar,
       fecha: now.toISOString().slice(0, 10),
       horaEntrada: now.toISOString(),
       horaSalida: null
@@ -74,19 +112,13 @@ export default function AsistenciaPage() {
       body: JSON.stringify({ asistencia: updatedAsistencia }),
     })
     
-    alert(`Entrada registrada con éxito para ${operariaNombre.trim()}`)
-    setOperariaNombre('')
+    alert(`Entrada registrada con éxito para ${selectedAuxiliar}`)
   }
 
   const handleSalida = async () => {
-    if (!operariaNombre.trim()) {
-      alert("Por favor ingresa tu nombre primero.")
-      return
-    }
-    if (!openShift) {
-      alert("No tienes ningún turno abierto para registrar salida.")
-      return
-    }
+    if (!selectedAuxiliar || !openShift) return
+    if (!confirm(`¿Estás segura de registrar tu salida?`)) return
+    
     const now = new Date()
     
     const updatedAsistencia = asistencia.map(a => {
@@ -104,21 +136,40 @@ export default function AsistenciaPage() {
       body: JSON.stringify({ asistencia: updatedAsistencia }),
     })
     
-    alert(`Salida registrada con éxito para ${operariaNombre.trim()}`)
-    setOperariaNombre('')
+    alert(`Salida registrada con éxito para ${selectedAuxiliar}`)
   }
 
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '2rem' }}>Cargando datos...</div>
   }
 
+  if (tokenError && !loading) {
+    return (
+      <main className="main-container" style={{ maxWidth: '800px' }}>
+        <div className="glass-panel animate-fade-in panel-inner" style={{ textAlign: 'center', padding: '3rem' }}>
+          <h2 style={{ color: '#991b1b', marginBottom: '1rem' }}>❌ Acceso Denegado</h2>
+          <p style={{ color: '#334155', fontSize: '1.1rem', marginBottom: '2rem' }}>
+            Este panel ahora es privado. Por favor, solicita tu <strong>enlace personal único</strong> a la administradora para poder ingresar.
+          </p>
+          <a href="/" className="btn btn-secondary">Volver al Inicio</a>
+        </div>
+      </main>
+    )
+  }
+
+  if (!selectedAuxiliar) {
+    return null;
+  }
+
+  const normalizeStr = (str: string) => str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "").toLowerCase() : ""
+
   const filteredRecibos = recibos.filter((r) => {
     let match = true
     if (filterCliente) {
-      const term = filterCliente.toLowerCase().trim()
-      const matchesCliente = r.cliente && r.cliente.toLowerCase().includes(term)
-      const matchesClienteNombre = r.clienteNombre && r.clienteNombre.toLowerCase().includes(term)
-      const matchesRecibo = r.numeroRecibo && r.numeroRecibo.toString().toLowerCase() === term
+      const term = normalizeStr(filterCliente.trim())
+      const matchesCliente = r.cliente && normalizeStr(r.cliente).includes(term)
+      const matchesClienteNombre = r.clienteNombre && normalizeStr(r.clienteNombre).includes(term)
+      const matchesRecibo = r.numeroRecibo && normalizeStr(r.numeroRecibo.toString()) === term
       if (!matchesCliente && !matchesClienteNombre && !matchesRecibo) {
         match = false
       }
@@ -141,47 +192,44 @@ export default function AsistenciaPage() {
             </div>
           </div>
           <div className="header-right">
-            <h2 style={{ color: 'var(--primary-pink)', margin: '0 0 10px 0', fontSize: '1.5rem', textAlign: 'right' }}>Reloj de Asistencia</h2>
+            <h2 style={{ color: 'var(--primary-pink)', margin: '0 0 10px 0', fontSize: '1.5rem', textAlign: 'right' }}>Panel de {selectedAuxiliar}</h2>
             <a href="/" className="btn btn-secondary" style={{ padding: '0.4rem 1rem', fontSize: '0.9rem' }}>
               Ir al Inicio
             </a>
           </div>
         </div>
 
-        <div style={{ textAlign: 'center', padding: '1rem 0', maxWidth: '400px', margin: '0 auto' }}>
-          <div className="form-group" style={{ marginBottom: '2rem' }}>
-            <label className="form-label" style={{ fontSize: '1.1rem', color: '#334155', textAlign: 'center', display: 'block', marginBottom: '1rem' }}>
-              INGRESA TU NOMBRE PARA REGISTRAR ENTRADA/SALIDA:
-            </label>
-            <input
-              type="text"
-              className="form-input"
-              placeholder="Ej. María Pérez"
-              value={operariaNombre}
-              onChange={(e) => setOperariaNombre(e.target.value)}
-              style={{ textAlign: 'center', fontSize: '1.2rem', padding: '1rem' }}
-            />
+        {errorDb && (
+          <div style={{ backgroundColor: '#fee2e2', color: '#991b1b', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', border: '1px solid #f87171', fontWeight: 'bold', textAlign: 'center' }}>
+            ⚠️ {errorDb}
           </div>
+        )}
 
-          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center' }}>
-            <button 
-              onClick={handleEntrada}
-              className="btn btn-primary" 
-              style={{ flex: 1, padding: '1rem', fontSize: '1.2rem', backgroundColor: '#10b981', boxShadow: '0 4px 14px 0 rgba(16, 185, 129, 0.39)' }}
-            >
-              ▶️ Entrada
-            </button>
-            <button 
-              onClick={handleSalida}
-              className="btn btn-primary" 
-              style={{ flex: 1, padding: '1rem', fontSize: '1.2rem', backgroundColor: '#ef4444', boxShadow: '0 4px 14px 0 rgba(239, 68, 68, 0.39)' }}
-            >
-              ⏹️ Salida
-            </button>
+        <div style={{ textAlign: 'center', padding: '1rem 0', maxWidth: '500px', margin: '0 auto', backgroundColor: '#f8fafc', borderRadius: '1rem', border: '1px solid #e2e8f0', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)' }}>
+          <h2 style={{ color: '#334155', fontSize: '1.3rem', margin: '0 0 1rem 0', textTransform: 'capitalize' }}>{currentDate}</h2>
+          
+          <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', padding: '0 2rem' }}>
+            {!openShift ? (
+              <button 
+                onClick={handleEntrada}
+                className="btn btn-primary" 
+                style={{ width: '100%', padding: '1rem', fontSize: '1.2rem', backgroundColor: '#10b981', boxShadow: '0 4px 14px 0 rgba(16, 185, 129, 0.39)' }}
+              >
+                ▶️ Registrar Entrada
+              </button>
+            ) : (
+              <button 
+                onClick={handleSalida}
+                className="btn btn-primary" 
+                style={{ width: '100%', padding: '1rem', fontSize: '1.2rem', backgroundColor: '#ef4444', boxShadow: '0 4px 14px 0 rgba(239, 68, 68, 0.39)' }}
+              >
+                ⏹️ Terminar Jornada
+              </button>
+            )}
           </div>
           
           {openShift && (
-            <div style={{ marginTop: '1.5rem', padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '0.5rem', border: '1px solid #e2e8f0', color: '#16a34a', fontWeight: 'bold' }}>
+            <div style={{ marginTop: '1.5rem', padding: '1rem', color: '#16a34a', fontWeight: 'bold' }}>
               🟢 Tienes un turno abierto (Iniciado: {formatDateTime(openShift.horaEntrada)})
             </div>
           )}
@@ -284,5 +332,13 @@ export default function AsistenciaPage() {
         </div>
       </div>
     </main>
+  )
+}
+
+export default function AsistenciaPageWrapper() {
+  return (
+    <Suspense fallback={<div>Cargando...</div>}>
+      <AuxiliaresContent />
+    </Suspense>
   )
 }

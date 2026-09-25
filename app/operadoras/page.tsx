@@ -4,16 +4,24 @@ import React, { useState, useEffect } from 'react'
 
 function formatDateTime(dateStr: string) {
   if (!dateStr) return ''
-  const parts = dateStr.split('T')
-  if (parts.length !== 2) return dateStr
-  const datePart = parts[0]
-  const timeParts = parts[1].split(':')
-  let hours = parseInt(timeParts[0], 10)
-  const minutes = timeParts[1]
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  
+  // Convert to UTC-5 (Colombia)
+  const offset = -5 * 60 * 60 * 1000
+  const localDate = new Date(d.getTime() + offset)
+  
+  const yyyy = localDate.getUTCFullYear()
+  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(localDate.getUTCDate()).padStart(2, '0')
+  
+  let hours = localDate.getUTCHours()
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   const ampm = hours >= 12 ? 'PM' : 'AM'
   hours = hours % 12
   hours = hours ? hours : 12
-  return `${datePart} a las ${hours}:${minutes} ${ampm}`
+  
+  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
 }
 
 export default function OperadorasPage() {
@@ -36,11 +44,17 @@ export default function OperadorasPage() {
     adminText: '',
   })
 
+  const [errorDb, setErrorDb] = useState<string | null>(null)
+
   const loadData = () => {
     setLoading(true)
     fetch('/api/db?t=' + Date.now())
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) throw new Error('Error en la conexión con la base de datos')
+        return res.json()
+      })
       .then((data) => {
+        setErrorDb(null)
         const activas = (data.operadoras || []).filter((o: any) => o.activa)
         setOperadoras(activas)
         setRecibos(data.recibos || [])
@@ -61,7 +75,9 @@ export default function OperadorasPage() {
           }
         }
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+        setErrorDb('Error al cargar la base de datos. Por favor recarga la página.')
+      })
       .finally(() => setLoading(false))
   }
 
@@ -90,11 +106,16 @@ export default function OperadorasPage() {
     })
     setRecibos(updatedRecibos)
 
-    await fetch('/api/db', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recibos: updatedRecibos }),
-    })
+    try {
+      await fetch('/api/db', {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'UPDATE_ESTADO_RECIBO_Y_PRENDAS', reciboId, nuevoEstado }),
+      })
+    } catch (e) {
+      console.error(e)
+    }
   }
 
   const handleObsSubmit = async (e: React.FormEvent) => {
@@ -107,11 +128,16 @@ export default function OperadorasPage() {
     })
     setRecibos(updatedRecibos)
 
-    await fetch('/api/db', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ recibos: updatedRecibos }),
-    })
+    try {
+      await fetch('/api/db', {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'UPDATE_OBS_OPERADORA', reciboId: obsModal.reciboId, observacionOperadora: obsModal.operadoraText }),
+      })
+    } catch (e) {
+      console.error(e)
+    }
     
     setObsModal({ ...obsModal, isOpen: false })
   }
@@ -122,24 +148,64 @@ export default function OperadorasPage() {
   const handleDelegatePrenda = async (reciboId: string, prendaIndex: number, toOperadoraId: string) => {
     if (!toOperadoraId || !currentOp) return
     if (!confirm('¿Estás segura de que deseas asignar esta prenda a otra operaria?')) return
-    await fetch('/api/db', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'DELEGATE_PRENDA', reciboId, prendaIndex, toOperadoraId, fromOperadoraId: currentOp.id, fromOperadoraNombre: currentOp.nombre }),
-    })
-    loadData()
+    
+    // Optimistic update
+    setRecibos((prev) =>
+      prev.map((r) => {
+        if (r.id !== reciboId) return r
+        const newPrendas = [...(r.prendas || [])]
+        if (newPrendas[prendaIndex]) {
+          newPrendas[prendaIndex] = { ...newPrendas[prendaIndex], operadoraId: toOperadoraId }
+        }
+        return { ...r, prendas: newPrendas }
+      })
+    )
+
+    try {
+      await fetch('/api/db', {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'DELEGATE_PRENDA', reciboId, prendaIndex, toOperadoraId, fromOperadoraId: currentOp.id, fromOperadoraNombre: currentOp.nombre }),
+      })
+    } catch (e) {
+      console.error(e)
+      loadData() // Revert
+    }
   }
 
   const handleMarkPrendaFinished = async (reciboId: string, prendaIndex: number) => {
-    await fetch('/api/db', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ type: 'MARK_PRENDA_FINISHED', reciboId, prendaIndex }),
-    })
-    loadData()
+    // Optimistic update
+    setRecibos((prev) =>
+      prev.map((r) => {
+        if (r.id !== reciboId) return r
+        const newPrendas = [...(r.prendas || [])]
+        if (newPrendas[prendaIndex]) {
+          newPrendas[prendaIndex] = { ...newPrendas[prendaIndex], terminada: true }
+        }
+        
+        // Verificar si todas las prendas estn terminadas
+        const allFinished = newPrendas.every(p => p.terminada === true)
+        const newEstado = allFinished ? 'Terminado' : r.estado
+        
+        return { ...r, prendas: newPrendas, estado: newEstado }
+      })
+    )
+
+    try {
+      await fetch('/api/db', {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'MARK_PRENDA_FINISHED', reciboId, prendaIndex }),
+      })
+    } catch (e) {
+      console.error(e)
+      loadData() // Revert
+    }
   }
 
-  const normalizeStr = (str: string) => str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, "").toLowerCase() : ""
+  const normalizeStr = (str: string) => str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "").toLowerCase() : ""
 
   const misRecibosTotales = recibos.filter((r) => {
     if (!currentOp) return false
@@ -217,6 +283,12 @@ export default function OperadorasPage() {
             Panel de {selectedOperaria}
           </h2>
         </div>
+
+        {errorDb && (
+          <div style={{ backgroundColor: '#fee2e2', color: '#991b1b', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', border: '1px solid #f87171', fontWeight: 'bold', textAlign: 'center' }}>
+            ⚠️ {errorDb}
+          </div>
+        )}
 
         <div>
           <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>

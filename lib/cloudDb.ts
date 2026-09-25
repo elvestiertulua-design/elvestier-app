@@ -13,8 +13,34 @@ const initialDbData = {
     { id: '5', nombre: 'Made', activa: true },
     { id: '6', nombre: 'Ara', activa: true }
   ],
+  auxiliares: [
+    { id: '1', nombre: 'Marcela', activa: true, token: Math.random().toString(36).substring(2, 10) },
+    { id: '2', nombre: 'Jessica', activa: true, token: Math.random().toString(36).substring(2, 10) }
+  ],
   recibos: [],
   asistencia: []
+}
+
+// Variable global para mantener la conexión a Redis reutilizable en Vercel
+let globalRedisClient: Redis | null = null
+
+function getRedisClient(url: string) {
+  if (!globalRedisClient || globalRedisClient.status === 'end') {
+    globalRedisClient = new Redis(url, {
+      connectTimeout: 10000,
+      maxRetriesPerRequest: 3,
+      enableOfflineQueue: true,
+      retryStrategy: (times) => {
+        if (times > 3) return null // abortar después de 3 intentos
+        return Math.min(times * 200, 1000)
+      }
+    })
+    
+    globalRedisClient.on('error', (err) => {
+      console.error('Redis error:', err)
+    })
+  }
+  return globalRedisClient
 }
 
 /**
@@ -25,35 +51,7 @@ export async function getDbData() {
   const kvToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN
   const redisUrl = process.env.REDIS_URL
 
-  // Opción 1.5: Si hay REDIS_URL de la integración nativa de Redis
-  if (redisUrl) {
-    let redis: Redis | null = null
-    try {
-      redis = new Redis(redisUrl, {
-        connectTimeout: 3000,
-        maxRetriesPerRequest: 1,
-        enableOfflineQueue: false,
-        retryStrategy: () => null,
-      })
-      const dataStr = await redis.get('elvestier_db')
-      if (dataStr) {
-        const parsed = JSON.parse(dataStr)
-        return {
-          operadoras: parsed.operadoras || initialDbData.operadoras,
-          recibos: parsed.recibos || [],
-          asistencia: parsed.asistencia || []
-        }
-      }
-    } catch (e) {
-      console.error('Error al leer de Redis URL:', e)
-    } finally {
-      if (redis) {
-        try { redis.disconnect() } catch (err) {}
-      }
-    }
-  }
-
-  // Opción 1: Nube con Vercel KV / Upstash Redis (REST)
+  // Nube con Vercel KV / Upstash Redis (REST)
   if (kvUrl && kvToken) {
     try {
       const response = await fetch(`${kvUrl}/get/elvestier_db`, {
@@ -69,6 +67,7 @@ export async function getDbData() {
         const parsed = typeof resJson.result === 'string' ? JSON.parse(resJson.result) : resJson.result
         return {
           operadoras: parsed.operadoras || initialDbData.operadoras,
+          auxiliares: parsed.auxiliares || initialDbData.auxiliares,
           recibos: parsed.recibos || [],
           asistencia: parsed.asistencia || []
         }
@@ -76,6 +75,27 @@ export async function getDbData() {
     } catch (e) {
       console.error('Error al leer de Vercel KV en la nube:', e)
       throw new Error('No se pudo conectar a la base de datos principal en la nube. ' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
+  // Redis URL Nativo (ioredis) - Backup a REST API o Primario si REST no existe
+  if (redisUrl) {
+    try {
+      const redis = getRedisClient(redisUrl)
+      const dataStr = await redis.get('elvestier_db')
+      if (dataStr) {
+        const parsed = JSON.parse(dataStr)
+        return {
+          operadoras: parsed.operadoras || initialDbData.operadoras,
+          auxiliares: parsed.auxiliares || initialDbData.auxiliares,
+          recibos: parsed.recibos || [],
+          asistencia: parsed.asistencia || []
+        }
+      }
+    } catch (e) {
+      globalRedisClient = null // forzar reconexión
+      console.error('Error crítico al leer de Redis URL:', e)
+      throw new Error('Fallo crítico al conectar a Redis. Operación abortada para proteger datos. ' + (e instanceof Error ? e.message : ''))
     }
   }
 
@@ -95,6 +115,7 @@ export async function getDbData() {
     const parsed = JSON.parse(fileContent)
     return {
       operadoras: parsed.operadoras || initialDbData.operadoras,
+      auxiliares: parsed.auxiliares || initialDbData.auxiliares,
       recibos: parsed.recibos || [],
       asistencia: parsed.asistencia || []
     }
@@ -113,28 +134,9 @@ export async function saveDbData(data: any) {
 
   const cleanData = {
     operadoras: data.operadoras || initialDbData.operadoras,
+    auxiliares: data.auxiliares || initialDbData.auxiliares,
     recibos: data.recibos || [],
     asistencia: data.asistencia || []
-  }
-
-  // Guardar con REDIS_URL nativo
-  if (redisUrl) {
-    let redis: Redis | null = null
-    try {
-      redis = new Redis(redisUrl, {
-        connectTimeout: 3000,
-        maxRetriesPerRequest: 1,
-        enableOfflineQueue: false,
-        retryStrategy: () => null,
-      })
-      await redis.set('elvestier_db', JSON.stringify(cleanData))
-    } catch (e) {
-      console.error('Error al guardar en Redis URL:', e)
-    } finally {
-      if (redis) {
-        try { redis.disconnect() } catch (err) {}
-      }
-    }
   }
 
   // Guardar en la Nube si las llaves de Vercel KV (REST) están configuradas
@@ -155,6 +157,18 @@ export async function saveDbData(data: any) {
     } catch (e) {
       console.error('Error al guardar en Vercel KV en la nube:', e)
       throw new Error('Fallo crítico al guardar en la nube. ' + (e instanceof Error ? e.message : ''))
+    }
+  }
+
+  // Guardar con REDIS_URL nativo (como backup o primario si KV falla/no existe)
+  if (redisUrl) {
+    try {
+      const redis = getRedisClient(redisUrl)
+      await redis.set('elvestier_db', JSON.stringify(cleanData))
+    } catch (e) {
+      globalRedisClient = null // forzar reconexión
+      console.error('Error al guardar en Redis URL:', e)
+      throw new Error('Fallo crítico al guardar en Redis. Operación abortada para evitar corrupción. ' + (e instanceof Error ? e.message : ''))
     }
   }
 

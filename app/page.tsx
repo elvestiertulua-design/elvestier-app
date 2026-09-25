@@ -1,20 +1,28 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 
 // Helper para formatear fecha y hora
 function formatDateTime(dateStr: string) {
   if (!dateStr) return ''
-  const parts = dateStr.split('T')
-  if (parts.length !== 2) return dateStr
-  const datePart = parts[0]
-  const timeParts = parts[1].split(':')
-  let hours = parseInt(timeParts[0], 10)
-  const minutes = timeParts[1]
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  
+  // Convert to UTC-5 (Colombia)
+  const offset = -5 * 60 * 60 * 1000
+  const localDate = new Date(d.getTime() + offset)
+  
+  const yyyy = localDate.getUTCFullYear()
+  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(localDate.getUTCDate()).padStart(2, '0')
+  
+  let hours = localDate.getUTCHours()
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   const ampm = hours >= 12 ? 'PM' : 'AM'
   hours = hours % 12
   hours = hours ? hours : 12
-  return `${datePart} a las ${hours}:${minutes} ${ampm}`
+  
+  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
 }
 
 function getDayName(dateStr: string) {
@@ -224,16 +232,6 @@ function StickerPrintView({ data }: { data: any }) {
         backgroundColor: '#fff',
       }}
     >
-      <style
-        type="text/css"
-        media="print"
-        dangerouslySetInnerHTML={{
-          __html: `
-          @page { margin: 0; }
-          html, body { margin: 0; padding: 0; }
-        `,
-        }}
-      />
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '2px solid #000', paddingBottom: '10px' }}>
           <span style={{ fontSize: '24px', fontWeight: 'bold' }}>RECIBO #</span>
@@ -258,7 +256,7 @@ function StickerPrintView({ data }: { data: any }) {
           <span style={{ fontSize: '42px', fontWeight: 'bold' }}>{totalPrendas}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <strong style={{ fontSize: '38px' }}>TOTAL:</strong>
+          <strong style={{ fontSize: '42px' }}>TOTAL:</strong>
           <span style={{ fontSize: '48px', fontWeight: 'bold' }}>${granTotal.toLocaleString('es-CO')}</span>
         </div>
       </div>
@@ -268,6 +266,7 @@ function StickerPrintView({ data }: { data: any }) {
 
 // Formulario Principal del Mostrador
 function MainForm() {
+  const isSaving = useRef(false)
   const [formData, setFormData] = useState({
     cliente: '',
     telefono: '',
@@ -299,13 +298,16 @@ function MainForm() {
         if (parsed.prendas) setPrendas(parsed.prendas)
         if (parsed.tipoPago) setTipoPago(parsed.tipoPago)
         if (parsed.abono) setAbono(parsed.abono)
+        if (parsed.savedNumeroRecibo) {
+          setSavedNumeroRecibo(parsed.savedNumeroRecibo)
+        }
       }
     } catch (e) {}
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('elvestier_draft', JSON.stringify({ formData, prendas, tipoPago, abono }))
-  }, [formData, prendas, tipoPago, abono])
+    localStorage.setItem('elvestier_draft', JSON.stringify({ formData, prendas, tipoPago, abono, savedNumeroRecibo }))
+  }, [formData, prendas, tipoPago, abono, savedNumeroRecibo])
 
   useEffect(() => {
     fetch('/api/db?t=' + Date.now())
@@ -388,10 +390,19 @@ function MainForm() {
   const granTotal = prendas.reduce((acc, curr) => acc + (Number(curr.valorTotal) || 0), 0)
 
   const saveData = async () => {
+    if (isSaving.current) return false
+
+    // Si ya se guardó este pedido, no lo duplicamos
+    if (savedNumeroRecibo) {
+      return { numeroRecibo: savedNumeroRecibo }
+    }
+
     if (prendas.length === 0) {
       alert('Debes agregar al menos una prenda a la lista antes de guardar.')
       return false
     }
+
+    isSaving.current = true
     setLoading(true)
     setMessage('')
     try {
@@ -439,12 +450,13 @@ function MainForm() {
       console.error(err)
       let msg = err.message || 'Hubo un error al guardar. Intenta de nuevo.'
       if (msg.includes('EBUSY') || msg.includes('EPERM')) {
-        msg = '❌ El archivo de Excel está abierto. Por favor ciérralo completamente y vuelve a intentar.'
+        msg = '⚠️ El archivo de Excel está abierto. Por favor ciérralo completamente y vuelve a intentar.'
       }
       setMessage(msg)
       return null
     } finally {
       setLoading(false)
+      isSaving.current = false
     }
   }
 

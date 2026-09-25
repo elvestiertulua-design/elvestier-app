@@ -4,16 +4,24 @@ import React, { useState, useEffect } from 'react'
 
 function formatDateTime(dateStr: string) {
   if (!dateStr) return ''
-  const parts = dateStr.split('T')
-  if (parts.length !== 2) return dateStr
-  const datePart = parts[0]
-  const timeParts = parts[1].split(':')
-  let hours = parseInt(timeParts[0], 10)
-  const minutes = timeParts[1]
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  
+  // Convert to UTC-5 (Colombia)
+  const offset = -5 * 60 * 60 * 1000
+  const localDate = new Date(d.getTime() + offset)
+  
+  const yyyy = localDate.getUTCFullYear()
+  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(localDate.getUTCDate()).padStart(2, '0')
+  
+  let hours = localDate.getUTCHours()
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   const ampm = hours >= 12 ? 'PM' : 'AM'
   hours = hours % 12
   hours = hours ? hours : 12
-  return `${datePart} a las ${hours}:${minutes} ${ampm}`
+  
+  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
 }
 
 function getDayName(dateStr: string) {
@@ -159,10 +167,12 @@ function PasswordGate({
 function AdminDashboard() {
   const [recibos, setRecibos] = useState<any[]>([])
   const [operadoras, setOperadoras] = useState<any[]>([])
+  const [auxiliares, setAuxiliares] = useState<any[]>([])
   const [asistencia, setAsistencia] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const [nuevaOperadoraNombre, setNuevaOperadoraNombre] = useState('')
+  const [nuevaAuxiliarNombre, setNuevaAuxiliarNombre] = useState('')
   const [filterCliente, setFilterCliente] = useState('')
   const [filterRecibo, setFilterRecibo] = useState('')
   const [filterRecibido, setFilterRecibido] = useState('')
@@ -197,14 +207,17 @@ function AdminDashboard() {
   })
 
   const [stickerData, setStickerData] = useState<any>(null)
+  const [errorDb, setErrorDb] = useState<string | null>(null)
 
   const loadData = async () => {
     try {
       const res = await fetch('/api/db?t=' + Date.now())
       if (res.ok) {
+        setErrorDb(null)
         const data = await res.json()
         setRecibos(data.recibos || [])
         const ops = data.operadoras || []
+        const aux = data.auxiliares || []
         let missingTokens = false
         const opsWithTokens = ops.map((op: any) => {
           if (!op.token) {
@@ -212,6 +225,14 @@ function AdminDashboard() {
             return { ...op, token: Math.random().toString(36).substring(2, 10) }
           }
           return op
+        })
+        let missingTokensAux = false
+        const auxWithTokens = aux.map((a: any) => {
+          if (!a.token) {
+            missingTokensAux = true
+            return { ...a, token: Math.random().toString(36).substring(2, 10) }
+          }
+          return a
         })
         
         if (missingTokens) {
@@ -221,12 +242,24 @@ function AdminDashboard() {
             body: JSON.stringify({ type: 'MANAGE_OPERATORS', operadoras: opsWithTokens }),
           }).catch(console.error)
         }
+
+        if (missingTokensAux) {
+          fetch('/api/db', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'MANAGE_AUXILIARES', auxiliares: auxWithTokens }),
+          }).catch(console.error)
+        }
         
         setOperadoras(opsWithTokens)
+        setAuxiliares(auxWithTokens)
         setAsistencia(data.asistencia || [])
+      } else {
+        setErrorDb('La base de datos está tardando en responder. Por favor recarga la página.')
       }
-    } catch (e) {
-      console.error(e)
+    } catch (error) {
+      setErrorDb('Error de red al conectar con la base de datos. Por favor recarga la página.')
+      console.error('Error loading data:', error)
     } finally {
       setLoading(false)
     }
@@ -237,15 +270,33 @@ function AdminDashboard() {
   }, [])
 
   const assignOperator = async (reciboId: string, operadoraId: string) => {
+    // Optimistic update
+    const op = operadoras.find((o) => o.id === operadoraId)
+    setRecibos((prev) =>
+      prev.map((r) =>
+        r.id === reciboId
+          ? { ...r, operadoraId, operaria: op ? op.nombre : '' }
+          : r
+      )
+    )
+
     try {
-      await fetch('/api/db', {
+      const response = await fetch('/api/db', {
         method: 'PUT',
+        keepalive: true,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'ASSIGN_OPERATOR', id: reciboId, operadoraId }),
       })
-      loadData()
+      if (!response.ok) {
+        throw new Error('Fallo al asignar operadora')
+      }
+      // Opcional: recargar en background
+      // loadData()
     } catch (e) {
-      console.error(e)
+      console.error('Error al asignar operadora:', e)
+      // Revertir en caso de error
+      loadData()
+      alert('Hubo un error al guardar la asignación. Por favor, intenta de nuevo.')
     }
   }
 
@@ -325,6 +376,37 @@ function AdminDashboard() {
     }
   }
 
+  const handleAddAuxiliar = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!nuevaAuxiliarNombre.trim()) return
+    const updated = [...auxiliares, { id: Date.now().toString(), nombre: nuevaAuxiliarNombre.trim(), activa: true, token: Math.random().toString(36).substring(2, 10) }]
+    try {
+      await fetch('/api/db', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'MANAGE_AUXILIARES', auxiliares: updated }),
+      })
+      setNuevaAuxiliarNombre('')
+      loadData()
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
+  const toggleAuxiliarStatus = async (id: string, newStatus: boolean) => {
+    const updated = auxiliares.map((a) => (a.id === id ? { ...a, activa: newStatus } : a))
+    try {
+      await fetch('/api/db', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'MANAGE_AUXILIARES', auxiliares: updated }),
+      })
+      loadData()
+    } catch (e) {
+      console.error(e)
+    }
+  }
+
   if (loading) {
     return <div style={{ textAlign: 'center', padding: '2rem' }}>Cargando datos...</div>
   }
@@ -350,7 +432,7 @@ function AdminDashboard() {
     )
   }
 
-  const normalizeStr = (str: string) => str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, "").toLowerCase() : ""
+  const normalizeStr = (str: string) => str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "").toLowerCase() : ""
 
   const activeOperators = operadoras.filter((op) => op.activa)
   const filteredRecibos = recibos.filter((r) => {
@@ -385,6 +467,12 @@ function AdminDashboard() {
             </button>
           </div>
         </div>
+
+        {errorDb && (
+          <div style={{ backgroundColor: '#fee2e2', color: '#991b1b', padding: '1rem', borderRadius: '8px', marginBottom: '1.5rem', border: '1px solid #f87171', fontWeight: 'bold' }}>
+            ⚠️ {errorDb}
+          </div>
+        )}
 
         <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>
           <button
@@ -730,6 +818,38 @@ function AdminDashboard() {
                       }} 
                       className="btn btn-primary" 
                       style={{ padding: '0.4rem', fontSize: '0.8rem', marginTop: '0.5rem' }}
+                    >
+                      📋 Copiar Enlace Único
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginTop: '2rem' }}>
+            <h2 style={{ marginTop: 0, color: '#334155' }}>Gestión de Auxiliares</h2>
+            <form onSubmit={handleAddAuxiliar} style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem' }}>
+              <input type="text" className="form-input" placeholder="Nombre de la nueva auxiliar" value={nuevaAuxiliarNombre} onChange={(e) => setNuevaAuxiliarNombre(e.target.value)} style={{ flex: 1 }} />
+              <button type="submit" className="btn btn-primary">Agregar Auxiliar</button>
+            </form>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '1rem' }}>
+              {auxiliares.map((aux) => (
+                <div key={aux.id} style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', padding: '1rem', backgroundColor: aux.activa ? '#f8fafc' : '#fee2e2', borderRadius: '0.5rem', border: '1px solid #e2e8f0' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontWeight: '500', color: aux.activa ? '#0f172a' : '#991b1b', textDecoration: aux.activa ? 'none' : 'line-through' }}>{aux.nombre}</span>
+                    <button onClick={() => toggleAuxiliarStatus(aux.id, !aux.activa)} className="btn btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }}>
+                      {aux.activa ? 'Desactivar' : 'Activar'}
+                    </button>
+                  </div>
+                  {aux.activa && aux.token && (
+                    <button 
+                      onClick={() => {
+                        const link = `${window.location.origin}/auxiliares?token=${aux.token}`
+                        navigator.clipboard.writeText(link)
+                        alert('Enlace copiado al portapapeles:\n\n' + link)
+                      }} 
+                      className="btn btn-primary" 
+                      style={{ padding: '0.4rem', fontSize: '0.8rem', marginTop: '0.5rem', backgroundColor: '#8b5cf6' }}
                     >
                       📋 Copiar Enlace Único
                     </button>

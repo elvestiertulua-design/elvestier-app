@@ -6,16 +6,24 @@ export const dynamic = 'force-dynamic'
 
 function formatDateTime(dateStr: string) {
   if (!dateStr) return ''
-  const parts = dateStr.split('T')
-  if (parts.length !== 2) return dateStr
-  const datePart = parts[0]
-  const timeParts = parts[1].split(':')
-  let hours = parseInt(timeParts[0], 10)
-  const minutes = timeParts[1]
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return dateStr
+  
+  // Convert to UTC-5 (Colombia)
+  const offset = -5 * 60 * 60 * 1000
+  const localDate = new Date(d.getTime() + offset)
+  
+  const yyyy = localDate.getUTCFullYear()
+  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
+  const dd = String(localDate.getUTCDate()).padStart(2, '0')
+  
+  let hours = localDate.getUTCHours()
+  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
   const ampm = hours >= 12 ? 'PM' : 'AM'
   hours = hours % 12
   hours = hours ? hours : 12
-  return `${datePart} a las ${hours}:${minutes} ${ampm}`
+  
+  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
 }
 
 export async function GET(request: Request) {
@@ -28,19 +36,7 @@ export async function GET(request: Request) {
     const db = await getDbData()
     let recibos = db.recibos || []
 
-    // Filtrar por fecha de registro/recibido (cuando entró la prenda al taller)
-    if (start) {
-      recibos = recibos.filter((r: any) => {
-        const d = r.fechaRegistro || r.fechaRecibido || r.fecha
-        return d && d >= start
-      })
-    }
-    if (end) {
-      recibos = recibos.filter((r: any) => {
-        const d = r.fechaRegistro || r.fechaRecibido || r.fecha
-        return d && d <= end + 'T23:59:59'
-      })
-    }
+    // El filtro de fechas se aplicará individualmente a cada prenda más adelante
 
     // Filtrar y desglosar por prendas
     let excelRows: any[] = []
@@ -60,11 +56,25 @@ export async function GET(request: Request) {
           }
           if (opId === 'unassigned' && pOpId) return
 
-          const estadoStr = p.estado || r.estado || 'Pendiente'
-          if (estadoStr === 'Entregado') return
+          let estadoStr = p.estado || r.estado || 'Pendiente'
 
-          const rawFechaTerminado = p.fechaTerminado || (r.estado === 'Terminado' ? r.fechaTerminado : '') || ''
+          // Si está Entregado, para este reporte se cuenta como Terminado (porque ya se hizo el trabajo)
+          if (estadoStr === 'Entregado') {
+            estadoStr = 'Terminado'
+          }
+
+          // SOLO incluir prendas terminadas
+          if (estadoStr !== 'Terminado') return
+
+          const rawFechaTerminado = p.fechaTerminado || (r.estado === 'Terminado' || r.estado === 'Entregado' ? r.fechaTerminado : '') || ''
           const fechaTerminadoStr = rawFechaTerminado ? formatDateTime(rawFechaTerminado) : ''
+
+          // El filtro de fechas ahora es estrictamente sobre la fecha en que se terminó
+          const refDate = rawFechaTerminado || ''
+          
+          if (!refDate) return // Si no tiene fecha de terminado, no sale en el reporte de terminados
+          if (start && refDate < start) return
+          if (end && refDate > end + 'T23:59:59') return
 
           excelRows.push({
             'Número Recibo': r.numeroRecibo || r.id,
@@ -83,11 +93,21 @@ export async function GET(request: Request) {
         if (opId && opId !== 'ALL' && opId !== 'unassigned' && r.operadoraId !== opId) return
         if (opId === 'unassigned' && r.operadoraId) return
 
-        const estadoStr = r.estado || 'Pendiente'
-        if (estadoStr === 'Entregado') return
+        let estadoStr = r.estado || 'Pendiente'
+        if (estadoStr === 'Entregado') {
+          estadoStr = 'Terminado'
+        }
+
+        if (estadoStr !== 'Terminado') return
 
         const rawFechaTerminado = r.fechaTerminado || ''
         const fechaTerminadoStr = rawFechaTerminado ? formatDateTime(rawFechaTerminado) : ''
+
+        const refDate = rawFechaTerminado || ''
+        
+        if (!refDate) return
+        if (start && refDate < start) return
+        if (end && refDate > end + 'T23:59:59') return
 
         excelRows.push({
           'Número Recibo': r.numeroRecibo || r.id,

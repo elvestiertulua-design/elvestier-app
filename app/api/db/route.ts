@@ -5,8 +5,12 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
+    const envVars = {
+      kvUrl: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
+      redisUrl: process.env.REDIS_URL
+    }
     const data = await getDbData()
-    return NextResponse.json(data)
+    return NextResponse.json({ ...data, envVars })
   } catch (error) {
     return NextResponse.json({ error: 'Error al leer la base de datos' }, { status: 500 })
   }
@@ -19,6 +23,9 @@ export async function POST(request: Request) {
 
     if (body.operadoras) {
       currentData.operadoras = body.operadoras
+    }
+    if (body.auxiliares) {
+      currentData.auxiliares = body.auxiliares
     }
     if (body.recibos) {
       currentData.recibos = body.recibos
@@ -100,8 +107,36 @@ export async function PUT(request: Request) {
         }
         return r
       })
+    } else if (body.type === 'UPDATE_ESTADO_RECIBO_Y_PRENDAS') {
+      const nowIso = new Date().toISOString()
+      currentData.recibos = (currentData.recibos || []).map((r: any) => {
+        if (r.id === body.reciboId) {
+          return {
+            ...r,
+            estado: body.nuevoEstado,
+            fechaTerminado: body.nuevoEstado === 'Terminado' ? (r.fechaTerminado || nowIso) : r.fechaTerminado,
+            prendas: Array.isArray(r.prendas)
+              ? r.prendas.map((p: any) => ({
+                  ...p,
+                  estado: body.nuevoEstado === 'Terminado' ? 'Terminado' : p.estado,
+                  fechaTerminado: body.nuevoEstado === 'Terminado' ? (p.fechaTerminado || nowIso) : p.fechaTerminado,
+                }))
+              : r.prendas,
+          }
+        }
+        return r
+      })
+    } else if (body.type === 'UPDATE_OBS_OPERADORA') {
+      currentData.recibos = (currentData.recibos || []).map((r: any) => {
+        if (r.id === body.reciboId) {
+          return { ...r, observacionOperadora: body.observacionOperadora }
+        }
+        return r
+      })
     } else if (body.type === 'MANAGE_OPERATORS') {
       currentData.operadoras = body.operadoras
+    } else if (body.type === 'MANAGE_AUXILIARES') {
+      currentData.auxiliares = body.auxiliares
     }
 
     const savedData = await saveDbData(currentData)
