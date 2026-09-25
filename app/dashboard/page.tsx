@@ -239,8 +239,8 @@ export default function DashboardPage() {
                       <LineChart data={dailyData} margin={{ top: 5, right: 20, bottom: 5, left: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                         <XAxis dataKey="dia" />
-                        <YAxis tickFormatter={(val) => \`$\${val.toLocaleString('es-CO')}\`} width={80} />
-                        <Tooltip formatter={(val: number) => \`$\${val.toLocaleString('es-CO')}\`} labelFormatter={(l) => \`Día \${l}\`} />
+                        <YAxis tickFormatter={(val) => `$${val.toLocaleString('es-CO')}`} width={80} />
+                        <Tooltip formatter={(val: any) => `$${Number(val).toLocaleString('es-CO')}`} labelFormatter={(l) => `Día ${l}`} />
                         <Line type="monotone" dataKey="dinero" stroke="#10b981" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 8 }} name="Dinero Ingresado" />
                       </LineChart>
                     </ResponsiveContainer>
@@ -256,7 +256,7 @@ export default function DashboardPage() {
                         <CartesianGrid strokeDasharray="3 3" vertical={false} />
                         <XAxis dataKey="dia" />
                         <YAxis width={40} />
-                        <Tooltip labelFormatter={(l) => \`Día \${l}\`} />
+                        <Tooltip labelFormatter={(l) => `Día ${l}`} />
                         <Bar dataKey="clientes" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Clientes Nuevos" />
                       </BarChart>
                     </ResponsiveContainer>
@@ -281,13 +281,13 @@ export default function DashboardPage() {
                           outerRadius={80}
                           fill="#8884d8"
                           dataKey="value"
-                          label={({ name, percent }) => \`\${name} (\${(percent * 100).toFixed(0)}%)\`}
+                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
                         >
                           {pieDineroData.map((entry, index) => (
-                            <Cell key={\`cell-\${index}\`} fill={COLORS[index % COLORS.length]} />
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                           ))}
                         </Pie>
-                        <Tooltip formatter={(val: number) => \`$\${val.toLocaleString('es-CO')}\`} />
+                        <Tooltip formatter={(val: any) => `$${Number(val).toLocaleString('es-CO')}`} />
                         <Legend />
                       </PieChart>
                     </ResponsiveContainer>
@@ -308,10 +308,10 @@ export default function DashboardPage() {
                           outerRadius={80}
                           fill="#8884d8"
                           dataKey="value"
-                          label={({ name, percent }) => \`\${name} (\${(percent * 100).toFixed(0)}%)\`}
+                          label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
                         >
                           {pieClientesData.map((entry, index) => (
-                            <Cell key={\`cell-\${index}\`} fill={COLORS[index % COLORS.length]} />
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                           ))}
                         </Pie>
                         <Tooltip />
