@@ -171,6 +171,7 @@ function AdminDashboard() {
   const [asistencia, setAsistencia] = useState<any[]>([])
   const [egresos, setEgresos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
+  const [cajaDate, setCajaDate] = useState(() => getCurrentLocalTimeStr().split('T')[0])
 
   const [nuevaOperadoraNombre, setNuevaOperadoraNombre] = useState('')
   const [nuevaAuxiliarNombre, setNuevaAuxiliarNombre] = useState('')
@@ -334,10 +335,6 @@ function AdminDashboard() {
 
   const handleEntregaSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!entregaModal.nombre.trim()) {
-      alert('Por favor ingrese el nombre de quien recoge.')
-      return
-    }
     const target = recibos.find((r) => r.id === entregaModal.reciboId)
     try {
       const payload: any = {
@@ -689,7 +686,7 @@ function AdminDashboard() {
         )}
 
         {activeTab === 'caja' && (() => {
-          const todayStr = getCurrentLocalTimeStr().split('T')[0]
+          const todayStr = cajaDate
           
           let totalEfectivo = 0
           let totalNequi = 0
@@ -719,7 +716,45 @@ function AdminDashboard() {
 
           return (
             <div style={{ backgroundColor: '#fff', padding: '2rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginBottom: '2rem' }}>
-              <h2 style={{ marginTop: 0, color: '#334155' }}>Caja Registradora del Día</h2>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem', flexWrap: 'wrap', gap: '1rem' }}>
+                <h2 style={{ margin: 0, color: '#334155', display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                  Caja Registradora
+                  <input type="date" className="form-input" style={{ width: 'auto', fontSize: '1rem', padding: '0.25rem 0.5rem' }} value={cajaDate} onChange={(e) => setCajaDate(e.target.value)} />
+                </h2>
+                <button
+                  className="btn btn-secondary"
+                  onClick={() => {
+                    let csv = `REPORTE DE CAJA REGISTRADORA\nFecha:,${cajaDate}\n\nRESUMEN\n`
+                    csv += `Ingresos Efectivo:,${totalEfectivo}\nIngresos Nequi:,${totalNequi}\nEgresos:,${totalEgresos}\nEFECTIVO EN CAJA:,${totalEfectivo - totalEgresos}\n\n`
+                    
+                    csv += `INGRESOS (RECIBOS)\nCliente,Servicio,Total,Abono,Metodo Pago,Estado\n`
+                    recibos.forEach(r => {
+                      const isCreatedToday = (r.fechaRegistro || r.fechaRecibido || '').startsWith(cajaDate)
+                      const isDeliveredToday = (r.fechaEntregado || '').startsWith(cajaDate)
+                      if (isCreatedToday || (isDeliveredToday && r.estado === 'Entregado' && r.metodoPago?.includes(' y '))) {
+                        csv += `"${r.cliente}","${r.prendas?.map((p:any)=>p.descripcion).join(' - ') || ''}",${r.granTotal},${r.abono || 0},"${r.metodoPago || ''}","${r.estado}"\n`
+                      }
+                    })
+
+                    csv += `\nEGRESOS (GASTOS)\nDescripcion,Valor\n`
+                    todayEgresos.forEach(e => {
+                      csv += `"${e.descripcion}",${e.valor}\n`
+                    })
+
+                    const blob = new Blob(["\ufeff" + csv], { type: 'text/csv;charset=utf-8;' })
+                    const link = document.createElement('a')
+                    const url = URL.createObjectURL(blob)
+                    link.setAttribute('href', url)
+                    link.setAttribute('download', `caja_${cajaDate}.csv`)
+                    link.style.visibility = 'hidden'
+                    document.body.appendChild(link)
+                    link.click()
+                    document.body.removeChild(link)
+                  }}
+                >
+                  Descargar Resumen (CSV)
+                </button>
+              </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
                 <div style={{ padding: '1.5rem', backgroundColor: '#f0fdf4', borderRadius: '0.5rem', border: '1px solid #bbf7d0' }}>
                   <h3 style={{ margin: 0, color: '#166534', fontSize: '1rem' }}>Ingresos Efectivo</h3>
@@ -1002,13 +1037,9 @@ function AdminDashboard() {
             <div style={{ backgroundColor: '#fff', padding: '2rem', borderRadius: '0.5rem', width: '90%', maxWidth: '400px', boxShadow: '0 20px 25px -5px rgba(0,0,0,0.1)', marginBottom: '5vh' }}>
               <h2 style={{ marginTop: 0, color: 'var(--primary-pink)' }}>Confirmar Entrega</h2>
               <form onSubmit={handleEntregaSubmit}>
-                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
                   <label className="form-label">Fecha y Hora de Entrega Real</label>
                   <input type="datetime-local" className="form-input" required value={entregaModal.fecha} onChange={(e) => setEntregaModal({ ...entregaModal, fecha: e.target.value })} />
-                </div>
-                <div className="form-group" style={{ marginBottom: '1.5rem' }}>
-                  <label className="form-label">Nombre de quien retira</label>
-                  <input type="text" className="form-input" placeholder="Ej. María (titular) o Juan (esposo)" required value={entregaModal.nombre} onChange={(e) => setEntregaModal({ ...entregaModal, nombre: e.target.value })} />
                 </div>
                 {entregaModal.pagoRestante && (
                   <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f1f5f9', borderRadius: '0.5rem', border: '1px solid #cbd5e1' }}>
