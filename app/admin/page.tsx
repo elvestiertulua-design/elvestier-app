@@ -1078,3 +1078,4 @@ export default function AdminPage() {
     </PasswordGate>
   )
 }
+export const dynamic = 'force-dynamic'

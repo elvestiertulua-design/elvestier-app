@@ -798,3 +798,4 @@ export default function Page() {
     </PasswordGate>
   )
 }
+export const dynamic = 'force-dynamic'
