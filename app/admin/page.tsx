@@ -2,6 +2,11 @@
 
 import React, { useState, useEffect } from 'react'
 
+function getCurrentLocalTimeStr() {
+  const tzOffset = new Date().getTimezoneOffset() * 60000
+  return new Date(Date.now() - tzOffset).toISOString().slice(0, 16)
+}
+
 function formatDateTime(dateStr: string) {
   if (!dateStr) return ''
   const d = new Date(dateStr)
@@ -189,10 +194,7 @@ function AdminDashboard() {
   const [asistenciaStart, setAsistenciaStart] = useState(new Date().toISOString().slice(0, 10))
   const [asistenciaEnd, setAsistenciaEnd] = useState(new Date().toISOString().slice(0, 10))
 
-  const getCurrentLocalTimeStr = () => {
-    const tzOffset = new Date().getTimezoneOffset() * 60000
-    return new Date(Date.now() - tzOffset).toISOString().slice(0, 16)
-  }
+
 
   const [entregaModal, setEntregaModal] = useState({
     isOpen: false,
