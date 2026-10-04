@@ -19,7 +19,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json()
-    const currentData = await getDbData()
+    const currentData: any = await getDbData()
 
     if (body.operadoras) {
       currentData.operadoras = body.operadoras
@@ -47,7 +47,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     const body = await request.json()
-    const currentData = await getDbData()
+    const currentData: any = await getDbData()
 
     if (body.type === 'ASSIGN_OPERATOR') {
       const operadora = (currentData.operadoras || []).find((op: any) => op.id === body.operadoraId)

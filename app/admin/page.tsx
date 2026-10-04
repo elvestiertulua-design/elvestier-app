@@ -767,7 +767,7 @@ function AdminDashboard() {
               )}
             </div>
           )
-        })}
+        })()}
 
         <div style={{ display: activeTab === 'list' ? 'block' : 'none' }}>
           <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginBottom: '2rem' }}>
