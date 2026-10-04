@@ -33,6 +33,9 @@ export async function POST(request: Request) {
     if (body.asistencia) {
       currentData.asistencia = body.asistencia
     }
+    if (body.egresos) {
+      currentData.egresos = body.egresos
+    }
 
     const savedData = await saveDbData(currentData)
     return NextResponse.json({ success: true, data: savedData })
@@ -60,6 +63,10 @@ export async function PUT(request: Request) {
               estado: 'Entregado',
               fechaEntregado: body.fechaEntregado,
               quienRecogio: body.quienRecogio,
+              tipoPago: body.tipoPago || r.tipoPago,
+              metodoPago: body.metodoPago || r.metodoPago,
+              valorPagar: body.valorPagar !== undefined ? body.valorPagar : r.valorPagar,
+              saldo: body.saldo !== undefined ? body.saldo : r.saldo
             }
           : r
       )

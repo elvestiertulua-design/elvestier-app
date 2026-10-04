@@ -169,6 +169,7 @@ function AdminDashboard() {
   const [operadoras, setOperadoras] = useState<any[]>([])
   const [auxiliares, setAuxiliares] = useState<any[]>([])
   const [asistencia, setAsistencia] = useState<any[]>([])
+  const [egresos, setEgresos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
 
   const [nuevaOperadoraNombre, setNuevaOperadoraNombre] = useState('')
@@ -179,7 +180,7 @@ function AdminDashboard() {
   const [filterEntrega, setFilterEntrega] = useState('')
   const [filterOperadora, setFilterOperadora] = useState('')
 
-  const [activeTab, setActiveTab] = useState<'list' | 'reports' | 'asistencia'>('list')
+  const [activeTab, setActiveTab] = useState<'list' | 'reports' | 'asistencia' | 'caja'>('list')
   const [reportStart, setReportStart] = useState('')
   const [reportEnd, setReportEnd] = useState('')
   const [reportOpId, setReportOpId] = useState('ALL')
@@ -197,6 +198,8 @@ function AdminDashboard() {
     reciboId: '',
     fecha: getCurrentLocalTimeStr(),
     nombre: '',
+    pagoRestante: false,
+    metodoPagoRestante: 'Efectivo',
   })
 
   const [obsModal, setObsModal] = useState({
@@ -205,6 +208,33 @@ function AdminDashboard() {
     operadoraText: '',
     adminText: '',
   })
+
+  const [nuevoEgresoDesc, setNuevoEgresoDesc] = useState('')
+  const [nuevoEgresoVal, setNuevoEgresoVal] = useState('')
+
+  const handleEgresoSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!nuevoEgresoDesc.trim() || !nuevoEgresoVal) return
+    const newEgreso = {
+      id: Date.now().toString(),
+      descripcion: nuevoEgresoDesc,
+      valor: parseFloat(nuevoEgresoVal),
+      fecha: getCurrentLocalTimeStr().split('T')[0]
+    }
+    const updatedEgresos = [...egresos, newEgreso]
+    setEgresos(updatedEgresos)
+    setNuevoEgresoDesc('')
+    setNuevoEgresoVal('')
+    try {
+      await fetch('/api/db', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ egresos: updatedEgresos }),
+      })
+    } catch (err) {
+      console.error(err)
+    }
+  }
 
   const [stickerData, setStickerData] = useState<any>(null)
   const [errorDb, setErrorDb] = useState<string | null>(null)
@@ -216,6 +246,8 @@ function AdminDashboard() {
         setErrorDb(null)
         const data = await res.json()
         setRecibos(data.recibos || [])
+        setAsistencia(data.asistencia || [])
+        setEgresos(data.egresos || [])
         const ops = data.operadoras || []
         const aux = data.auxiliares || []
         let missingTokens = false
@@ -308,18 +340,26 @@ function AdminDashboard() {
     }
     const target = recibos.find((r) => r.id === entregaModal.reciboId)
     try {
+      const payload: any = {
+        type: 'MARK_DELIVERED',
+        id: entregaModal.reciboId,
+        fechaEntregado: entregaModal.fecha,
+        quienRecogio: entregaModal.nombre,
+      }
+      if (entregaModal.pagoRestante && target) {
+        payload.tipoPago = 'Cancelado'
+        payload.metodoPago = target.metodoPago ? `${target.metodoPago} y ${entregaModal.metodoPagoRestante}` : entregaModal.metodoPagoRestante
+        payload.valorPagar = target.granTotal
+        payload.saldo = 0
+      }
+
       await fetch('/api/db', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          type: 'MARK_DELIVERED',
-          id: entregaModal.reciboId,
-          fechaEntregado: entregaModal.fecha,
-          quienRecogio: entregaModal.nombre,
-        }),
+        body: JSON.stringify(payload),
       })
 
-      setEntregaModal({ ...entregaModal, isOpen: false, reciboId: '', nombre: '' })
+      setEntregaModal({ ...entregaModal, isOpen: false, reciboId: '', nombre: '', pagoRestante: false })
       loadData()
     } catch (e) {
       console.error(e)
@@ -523,6 +563,22 @@ function AdminDashboard() {
           >
             Asistencia Auxiliares
           </button>
+          <button
+            onClick={() => setActiveTab('caja')}
+            style={{
+              background: 'none',
+              border: 'none',
+              fontSize: '1.1rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              color: activeTab === 'caja' ? 'var(--primary-pink)' : '#64748b',
+              borderBottom: activeTab === 'caja' ? '3px solid var(--primary-pink)' : 'none',
+              paddingBottom: '0.5rem',
+              marginBottom: '-0.65rem',
+            }}
+          >
+            Caja Registradora
+          </button>
         </div>
 
         {activeTab === 'reports' && (
@@ -631,6 +687,87 @@ function AdminDashboard() {
             </div>
           </div>
         )}
+
+        {activeTab === 'caja' && (() => {
+          const todayStr = getCurrentLocalTimeStr().split('T')[0]
+          
+          let totalEfectivo = 0
+          let totalNequi = 0
+
+          recibos.forEach(r => {
+            const isCreatedToday = (r.fechaRegistro || r.fechaRecibido || '').startsWith(todayStr)
+            
+            if (isCreatedToday) {
+              const val = Number(r.abono) || (r.tipoPago === 'Cancelado' ? Number(r.valorPagar || r.granTotal) : 0)
+              if (r.metodoPago === 'Nequi' || r.metodoPago === 'Nequi y Efectivo') totalNequi += val
+              else if (val > 0) totalEfectivo += val
+            }
+
+            const isDeliveredToday = (r.fechaEntregado || '').startsWith(todayStr)
+            if (isDeliveredToday && r.estado === 'Entregado' && r.metodoPago?.includes(' y ')) {
+               const parts = r.metodoPago.split(' y ')
+               if (parts.length === 2) {
+                 const restVal = Number(r.valorPagar || r.granTotal) - Number(r.abono || 0)
+                 if (parts[1] === 'Nequi') totalNequi += restVal
+                 else totalEfectivo += restVal
+               }
+            }
+          })
+
+          const todayEgresos = egresos.filter(e => e.fecha === todayStr)
+          const totalEgresos = todayEgresos.reduce((acc, e) => acc + (Number(e.valor) || 0), 0)
+
+          return (
+            <div style={{ backgroundColor: '#fff', padding: '2rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginBottom: '2rem' }}>
+              <h2 style={{ marginTop: 0, color: '#334155' }}>Caja Registradora del Día</h2>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                <div style={{ padding: '1.5rem', backgroundColor: '#f0fdf4', borderRadius: '0.5rem', border: '1px solid #bbf7d0' }}>
+                  <h3 style={{ margin: 0, color: '#166534', fontSize: '1rem' }}>Ingresos Efectivo</h3>
+                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#15803d' }}>${totalEfectivo.toLocaleString('es-CO')}</div>
+                </div>
+                <div style={{ padding: '1.5rem', backgroundColor: '#eef2ff', borderRadius: '0.5rem', border: '1px solid #c7d2fe' }}>
+                  <h3 style={{ margin: 0, color: '#3730a3', fontSize: '1rem' }}>Ingresos Nequi</h3>
+                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#4338ca' }}>${totalNequi.toLocaleString('es-CO')}</div>
+                </div>
+                <div style={{ padding: '1.5rem', backgroundColor: '#fef2f2', borderRadius: '0.5rem', border: '1px solid #fecaca' }}>
+                  <h3 style={{ margin: 0, color: '#991b1b', fontSize: '1rem' }}>Egresos (Gastos)</h3>
+                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#b91c1c' }}>${totalEgresos.toLocaleString('es-CO')}</div>
+                </div>
+                <div style={{ padding: '1.5rem', backgroundColor: '#f8fafc', borderRadius: '0.5rem', border: '1px solid #cbd5e1' }}>
+                  <h3 style={{ margin: 0, color: '#0f172a', fontSize: '1rem' }}>Efectivo en Caja (Total)</h3>
+                  <div style={{ fontSize: '2rem', fontWeight: 'bold', color: '#0f172a' }}>${(totalEfectivo - totalEgresos).toLocaleString('es-CO')}</div>
+                </div>
+              </div>
+
+              <h3 style={{ color: '#334155', borderBottom: '2px solid #e2e8f0', paddingBottom: '0.5rem' }}>Registrar Gasto (Egreso)</h3>
+              <form onSubmit={handleEgresoSubmit} style={{ display: 'flex', gap: '1rem', alignItems: 'flex-end', marginBottom: '2rem', flexWrap: 'wrap' }}>
+                <div className="form-group" style={{ flex: '1 1 300px' }}>
+                  <label className="form-label">Descripción del gasto</label>
+                  <input type="text" className="form-input" placeholder="Ej. Compra de hilos, almuerzo..." required value={nuevoEgresoDesc} onChange={(e) => setNuevoEgresoDesc(e.target.value)} />
+                </div>
+                <div className="form-group" style={{ flex: '1 1 150px' }}>
+                  <label className="form-label">Valor ($)</label>
+                  <input type="number" className="form-input" placeholder="Ej. 15000" required value={nuevoEgresoVal} onChange={(e) => setNuevoEgresoVal(e.target.value)} />
+                </div>
+                <button type="submit" className="btn btn-primary" style={{ padding: '0.75rem 1.5rem', marginBottom: '0.2rem' }}>Registrar</button>
+              </form>
+
+              {todayEgresos.length > 0 && (
+                <div>
+                  <h3 style={{ color: '#334155' }}>Gastos de Hoy</h3>
+                  <ul style={{ listStyle: 'none', padding: 0 }}>
+                    {todayEgresos.map((e, i) => (
+                      <li key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '0.75rem', backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
+                        <span>{e.descripcion}</span>
+                        <strong style={{ color: '#ef4444' }}>-${Number(e.valor).toLocaleString('es-CO')}</strong>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )
+        })}
 
         <div style={{ display: activeTab === 'list' ? 'block' : 'none' }}>
           <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginBottom: '2rem' }}>
@@ -767,7 +904,7 @@ function AdminDashboard() {
                               {r.estado}
                             </span>
                             {r.estado === 'Terminado' && (
-                              <button className="btn btn-primary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={() => setEntregaModal({ isOpen: true, reciboId: r.id, fecha: getCurrentLocalTimeStr(), nombre: '' })}>
+                              <button className="btn btn-primary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={() => setEntregaModal({ isOpen: true, reciboId: r.id, fecha: getCurrentLocalTimeStr(), nombre: '', pagoRestante: r.tipoPago !== 'Cancelado', metodoPagoRestante: 'Efectivo' })}>
                                 Entregar
                               </button>
                             )}
@@ -873,6 +1010,22 @@ function AdminDashboard() {
                   <label className="form-label">Nombre de quien retira</label>
                   <input type="text" className="form-input" placeholder="Ej. María (titular) o Juan (esposo)" required value={entregaModal.nombre} onChange={(e) => setEntregaModal({ ...entregaModal, nombre: e.target.value })} />
                 </div>
+                {entregaModal.pagoRestante && (
+                  <div style={{ marginBottom: '1.5rem', padding: '1rem', backgroundColor: '#f1f5f9', borderRadius: '0.5rem', border: '1px solid #cbd5e1' }}>
+                    <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block', color: '#0f172a' }}>El cliente debe pagar un saldo pendiente.</label>
+                    <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>¿Cómo paga este saldo restante?</label>
+                    <div style={{ display: 'flex', gap: '2rem' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 'bold', color: '#10b981', fontSize: '1.1rem' }}>
+                        <input type="radio" name="metodoPagoRestante" checked={entregaModal.metodoPagoRestante === 'Efectivo'} onChange={() => setEntregaModal({ ...entregaModal, metodoPagoRestante: 'Efectivo' })} />
+                        💵 Efectivo
+                      </label>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 'bold', color: '#6366f1', fontSize: '1.1rem' }}>
+                        <input type="radio" name="metodoPagoRestante" checked={entregaModal.metodoPagoRestante === 'Nequi'} onChange={() => setEntregaModal({ ...entregaModal, metodoPagoRestante: 'Nequi' })} />
+                        📱 Nequi
+                      </label>
+                    </div>
+                  </div>
+                )}
                 <div style={{ display: 'flex', gap: '1rem' }}>
                   <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setEntregaModal({ ...entregaModal, isOpen: false })}>
                     Cancelar

@@ -285,6 +285,7 @@ function MainForm() {
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [tipoPago, setTipoPago] = useState('Pendiente')
+  const [metodoPago, setMetodoPago] = useState('Efectivo')
   const [abono, setAbono] = useState('')
   const [clientesList, setClientesList] = useState<any[]>([])
   const [printMode, setPrintMode] = useState<'none' | 'receipt' | 'sticker'>('none')
@@ -297,6 +298,7 @@ function MainForm() {
         if (parsed.formData) setFormData(parsed.formData)
         if (parsed.prendas) setPrendas(parsed.prendas)
         if (parsed.tipoPago) setTipoPago(parsed.tipoPago)
+        if (parsed.metodoPago) setMetodoPago(parsed.metodoPago)
         if (parsed.abono) setAbono(parsed.abono)
         if (parsed.savedNumeroRecibo) {
           setSavedNumeroRecibo(parsed.savedNumeroRecibo)
@@ -306,8 +308,8 @@ function MainForm() {
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('elvestier_draft', JSON.stringify({ formData, prendas, tipoPago, abono, savedNumeroRecibo }))
-  }, [formData, prendas, tipoPago, abono, savedNumeroRecibo])
+    localStorage.setItem('elvestier_draft', JSON.stringify({ formData, prendas, tipoPago, abono, savedNumeroRecibo, metodoPago }))
+  }, [formData, prendas, tipoPago, abono, savedNumeroRecibo, metodoPago])
 
   useEffect(() => {
     fetch('/api/db?t=' + Date.now())
@@ -427,6 +429,7 @@ function MainForm() {
         tipoPago,
         abono: abonoVal,
         saldo,
+        metodoPago: tipoPago === 'Pendiente' ? '' : metodoPago,
       }
 
       const res = await fetch('/api/save', {
@@ -691,9 +694,25 @@ function MainForm() {
             </div>
 
             {tipoPago === 'Abono' && (
-              <div className="form-group" style={{ maxWidth: '300px' }}>
+              <div className="form-group" style={{ maxWidth: '300px', marginBottom: '1rem' }}>
                 <label className="form-label">Valor del Abono ($)</label>
                 <input type="number" className="form-input" placeholder="Ej. 15000" value={abono} onChange={(e) => setAbono(e.target.value)} />
+              </div>
+            )}
+
+            {(tipoPago === 'Abono' || tipoPago === 'Cancelado') && (
+              <div style={{ padding: '1rem', backgroundColor: '#f8fafc', borderRadius: '0.5rem', border: '1px dashed #cbd5e1', marginBottom: '1rem' }}>
+                <label className="form-label" style={{ marginBottom: '0.5rem', display: 'block' }}>¿Cómo pagó?</label>
+                <div style={{ display: 'flex', gap: '2rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 'bold', color: '#10b981', fontSize: '1.1rem' }}>
+                    <input type="radio" name="metodoPago" checked={metodoPago === 'Efectivo'} onChange={() => setMetodoPago('Efectivo')} />
+                    💵 Efectivo
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', fontWeight: 'bold', color: '#6366f1', fontSize: '1.1rem' }}>
+                    <input type="radio" name="metodoPago" checked={metodoPago === 'Nequi'} onChange={() => setMetodoPago('Nequi')} />
+                    📱 Nequi
+                  </label>
+                </div>
               </div>
             )}
 
@@ -750,6 +769,7 @@ function MainForm() {
                 setItemInput({ cantidad: '', descripcion: '', valorUnitario: '', valorTotal: '' })
                 setTipoPago('Pendiente')
                 setAbono('')
+                setMetodoPago('Efectivo')
                 setSavedNumeroRecibo(null)
                 localStorage.removeItem('elvestier_draft')
               }}
