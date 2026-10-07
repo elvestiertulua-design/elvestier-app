@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getDbData } from '@/lib/cloudDb'
 import nodemailer from 'nodemailer'
-import { generateExcelBuffer } from '../../download/route'
+import { generateExcelBuffer } from '@/lib/excelUtils'
 
 export const dynamic = 'force-dynamic'
 
