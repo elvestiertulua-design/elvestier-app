@@ -1,0 +1,6 @@
+Número Recibo');
+      if (startIdx === -1) startIdx = content.indexOf('Nǧmero Recibo');
+      if (startIdx === -1) startIdx = content.indexOf(',Fecha,Cliente Nombre') - 14;
+      
+      let csv = content.substring(startIdx);
+      if (csv.includes('
