@@ -372,7 +372,7 @@ export default function OperadorasPage() {
                                 gap: '0.2rem',
                               }}>
                                 <div style={{ color: '#991b1b', fontWeight: 'bold', fontSize: '0.9rem' }}>
-                                  📅 Fecha de Entrega: <span style={{ color: '#1e293b' }}>{formatDateOnly(r.fechaEntrega)}</span>
+                                  📅 Fecha de Entrega: <span style={{ color: '#1e293b' }}>{getDayName(r.fechaEntrega) ? `${getDayName(r.fechaEntrega)}, ` : ''}{formatDateOnly(r.fechaEntrega)}</span>
                                 </div>
                                 <div style={{ color: '#dc2626', fontWeight: '800', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
                                   ⏰ HORA DE ENTREGA: {formatTimeOnly(r.fechaEntrega) || 'Hora no especificada'}

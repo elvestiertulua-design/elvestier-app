@@ -1,32 +1,11 @@
 import { NextResponse } from 'next/server'
 import { getDbData, saveDbData } from '@/lib/cloudDb'
+import { formatDateTime } from '@/lib/dateUtils'
 import fs from 'fs'
 import path from 'path'
 import * as XLSX from 'xlsx'
 
 const excelPath = path.join(process.cwd(), 'base_datos_el_vestier.xlsx')
-
-function formatDateTime(dateStr: string) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
-  
-  // Convert to UTC-5 (Colombia)
-  const offset = -5 * 60 * 60 * 1000
-  const localDate = new Date(d.getTime() + offset)
-  
-  const yyyy = localDate.getUTCFullYear()
-  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
-  const dd = String(localDate.getUTCDate()).padStart(2, '0')
-  
-  let hours = localDate.getUTCHours()
-  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  hours = hours % 12
-  hours = hours ? hours : 12
-  
-  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
-}
 
 function updateExcel(recibos: any[]) {
   try {

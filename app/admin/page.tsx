@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { formatDateTime, formatDateOnly, formatTimeOnly, getDayName, parseDateParts } from '@/lib/dateUtils'
+import { formatDateTime, formatDateOnly, formatTimeOnly, getDayName, parseDateParts, formatEntregaCompleta } from '@/lib/dateUtils'
 
 function getCurrentLocalTimeStr() {
   const tzOffset = new Date().getTimezoneOffset() * 60000
@@ -54,7 +54,7 @@ function StickerPrintView({ data }: { data: any }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <strong style={{ fontSize: '32px' }}>Entrega:</strong>
           <span style={{ fontSize: '32px', fontWeight: 'bold', textAlign: 'right', maxWidth: '350px' }}>
-            {data.fechaEntrega ? `${getDayName(data.fechaEntrega)}, ${formatDateTime(data.fechaEntrega)}` : '___________'}
+            {data.fechaEntrega ? formatEntregaCompleta(data.fechaEntrega) : '___________'}
           </span>
         </div>
       </div>
@@ -1051,7 +1051,7 @@ function AdminDashboard() {
                               {r.fechaEntrega ? (
                                 <div>
                                   <div style={{ fontWeight: 'bold', color: '#1e293b' }}>
-                                    📅 {formatDateOnly(r.fechaEntrega)}
+                                    📅 {getDayName(r.fechaEntrega) ? `${getDayName(r.fechaEntrega)}, ` : ''}{formatDateOnly(r.fechaEntrega)}
                                   </div>
                                   <div style={{ fontWeight: '800', color: '#dc2626', fontSize: '0.9rem', marginTop: '2px' }}>
                                     ⏰ {formatTimeOnly(r.fechaEntrega) || 'Hora no esp.'}

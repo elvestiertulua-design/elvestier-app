@@ -4,9 +4,9 @@ export function parseDateParts(dateStr?: string | null) {
   const str = String(dateStr).trim()
   if (!str) return { date: '', time: '', full: '' }
 
-  // Format YYYY-MM-DDTHH:mm... (datetime-local format without Z)
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(str) && !str.includes('Z')) {
-    const [datePart, timePart] = str.split('T')
+  // 1. Format YYYY-MM-DDTHH:mm... or YYYY-MM-DD HH:mm... (without Z)
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(str) && !str.includes('Z')) {
+    const [datePart, timePart] = str.split(/[T ]/)
     const [year, month, day] = datePart.split('-')
     const [hStr, mStr] = timePart.split(':')
     const hours = parseInt(hStr, 10)
@@ -21,7 +21,7 @@ export function parseDateParts(dateStr?: string | null) {
     }
   }
 
-  // Format YYYY-MM-DD (date only)
+  // 2. Format YYYY-MM-DD (date only)
   if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
     return {
       date: str,
@@ -30,7 +30,7 @@ export function parseDateParts(dateStr?: string | null) {
     }
   }
 
-  // Other formats (ISO with Z, timestamps, etc.)
+  // 3. Other formats (ISO with Z, timestamps, etc.)
   try {
     const d = new Date(str)
     if (isNaN(d.getTime())) return { date: str, time: '', full: str }
@@ -50,11 +50,34 @@ export function parseDateParts(dateStr?: string | null) {
     return {
       date: dateFormatted,
       time: timeFormatted,
-      full: `${dateFormatted} a las ${timeFormatted}`,
+      full: timeFormatted ? `${dateFormatted} a las ${timeFormatted}` : dateFormatted,
     }
   } catch {
     return { date: str, time: '', full: str }
   }
+}
+
+export function getDayName(dateStr?: string | null): string {
+  if (!dateStr) return ''
+  const parts = parseDateParts(dateStr)
+  if (!parts.date) return ''
+  const [year, month, day] = parts.date.split('-').map(Number)
+  if (!year || !month || !day) return ''
+  // Use noon (12:00:00) so there is zero risk of UTC midnight timezone rollback
+  const d = new Date(year, month - 1, day, 12, 0, 0)
+  const days = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO']
+  return days[d.getDay()] || ''
+}
+
+export function formatEntregaCompleta(dateStr?: string | null): string {
+  if (!dateStr) return 'Por definir'
+  const parts = parseDateParts(dateStr)
+  if (!parts.date) return dateStr
+  const day = getDayName(parts.date)
+  if (parts.time) {
+    return `${day ? day + ', ' : ''}${parts.date} a las ${parts.time}`
+  }
+  return `${day ? day + ', ' : ''}${parts.date}`
 }
 
 export function formatDateTime(dateStr?: string | null): string {
@@ -67,12 +90,4 @@ export function formatDateOnly(dateStr?: string | null): string {
 
 export function formatTimeOnly(dateStr?: string | null): string {
   return parseDateParts(dateStr).time
-}
-
-export function getDayName(dateStr?: string | null): string {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return ''
-  const days = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO']
-  return days[d.getDay()]
 }

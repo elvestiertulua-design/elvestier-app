@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect, useRef } from 'react'
-import { formatDateTime, getDayName } from '@/lib/dateUtils'
+import { formatDateTime, getDayName, formatEntregaCompleta } from '@/lib/dateUtils'
 
 // Componente de Puerta de Contraseña
 function PasswordGate({
@@ -121,7 +121,7 @@ function ReceiptPrintView({ data }: { data: any }) {
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '2px' }}>
           <span>Entrega:</span>
-          <span style={{ fontWeight: 'bold', textAlign: 'right' }}>{formatDateTime(data.fechaEntrega)}</span>
+          <span style={{ fontWeight: 'bold', textAlign: 'right' }}>{data.fechaEntrega ? formatEntregaCompleta(data.fechaEntrega) : 'Por definir'}</span>
         </div>
       </div>
 
@@ -215,7 +215,7 @@ function StickerPrintView({ data }: { data: any }) {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <strong style={{ fontSize: '32px' }}>Entrega:</strong>
           <span style={{ fontSize: '32px', fontWeight: 'bold', textAlign: 'right', maxWidth: '350px' }}>
-            {data.fechaEntrega ? `${getDayName(data.fechaEntrega)}, ${formatDateTime(data.fechaEntrega)}` : '___________'}
+            {data.fechaEntrega ? formatEntregaCompleta(data.fechaEntrega) : '___________'}
           </span>
         </div>
       </div>
@@ -448,9 +448,7 @@ function MainForm() {
     }
 
     const detalleStr = prendas.map((p) => `${p.cantidad}x ${p.descripcion} - $${(Number(p.valorTotal) || Number(p.valorUnitario) || 0).toLocaleString('es-CO')}`).join('\n')
-    const fechaEnt = formData.fechaEntrega ? formatDateTime(formData.fechaEntrega) : 'Por definir'
-    const diaEnt = formData.fechaEntrega ? getDayName(formData.fechaEntrega) : ''
-    const entregaTxt = diaEnt ? `*${diaEnt}*, ${fechaEnt}` : fechaEnt
+    const entregaTxt = formData.fechaEntrega ? formatEntregaCompleta(formData.fechaEntrega) : 'Por definir'
 
     let pagoTxt = ''
     if (tipoPago === 'Cancelado') {
