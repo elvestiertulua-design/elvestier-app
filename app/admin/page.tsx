@@ -1,40 +1,11 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
+import { formatDateTime, formatDateOnly, formatTimeOnly, getDayName } from '@/lib/dateUtils'
 
 function getCurrentLocalTimeStr() {
   const tzOffset = new Date().getTimezoneOffset() * 60000
   return new Date(Date.now() - tzOffset).toISOString().slice(0, 16)
-}
-
-function formatDateTime(dateStr: string) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
-  
-  // Convert to UTC-5 (Colombia)
-  const offset = -5 * 60 * 60 * 1000
-  const localDate = new Date(d.getTime() + offset)
-  
-  const yyyy = localDate.getUTCFullYear()
-  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
-  const dd = String(localDate.getUTCDate()).padStart(2, '0')
-  
-  let hours = localDate.getUTCHours()
-  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  hours = hours % 12
-  hours = hours ? hours : 12
-  
-  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
-}
-
-function getDayName(dateStr: string) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return ''
-  const days = ['DOMINGO', 'LUNES', 'MARTES', 'MIÉRCOLES', 'JUEVES', 'VIERNES', 'SÁBADO']
-  return days[d.getDay()]
 }
 
 function StickerPrintView({ data }: { data: any }) {
@@ -185,6 +156,8 @@ function AdminDashboard() {
   const [filterRecibido, setFilterRecibido] = useState('')
   const [filterEntrega, setFilterEntrega] = useState('')
   const [filterOperadora, setFilterOperadora] = useState('')
+  const [editingEntregaId, setEditingEntregaId] = useState<string | null>(null)
+  const [tempEntregaVal, setTempEntregaVal] = useState<string>('')
 
   const [activeTab, setActiveTab] = useState<'list' | 'reports' | 'asistencia' | 'caja'>('list')
   const [reportStart, setReportStart] = useState('')
@@ -307,10 +280,22 @@ function AdminDashboard() {
   const assignOperator = async (reciboId: string, operadoraId: string) => {
     // Optimistic update
     const op = operadoras.find((o) => o.id === operadoraId)
+    const opName = op ? op.nombre : (operadoraId || '')
     setRecibos((prev) =>
       prev.map((r) =>
         r.id === reciboId
-          ? { ...r, operadoraId, operaria: op ? op.nombre : '' }
+          ? {
+              ...r,
+              operadoraId,
+              operaria: opName,
+              prendas: Array.isArray(r.prendas)
+                ? r.prendas.map((p: any) => ({
+                    ...p,
+                    operadoraId: operadoraId || '',
+                    operaria: opName,
+                  }))
+                : r.prendas,
+            }
           : r
       )
     )
@@ -325,13 +310,84 @@ function AdminDashboard() {
       if (!response.ok) {
         throw new Error('Fallo al asignar operadora')
       }
-      // Opcional: recargar en background
-      // loadData()
     } catch (e) {
       console.error('Error al asignar operadora:', e)
-      // Revertir en caso de error
       loadData()
       alert('Hubo un error al guardar la asignación. Por favor, intenta de nuevo.')
+    }
+  }
+
+  const handleUpdateEstado = async (reciboId: string, nuevoEstado: string) => {
+    if (nuevoEstado === 'Entregado') {
+      const r = recibos.find((x) => x.id === reciboId)
+      setEntregaModal({
+        isOpen: true,
+        reciboId,
+        fecha: getCurrentLocalTimeStr(),
+        nombre: r?.quienRecogio || '',
+        pagoRestante: r?.tipoPago !== 'Cancelado',
+        metodoPagoRestante: 'Efectivo',
+      })
+      return
+    }
+
+    const nowIso = new Date().toISOString()
+    const isTerminado = nuevoEstado === 'Terminado'
+    const isReverting = nuevoEstado === 'Pendiente' || nuevoEstado === 'En elaboración'
+
+    setRecibos((prev) =>
+      prev.map((r) => {
+        if (r.id !== reciboId) return r
+        return {
+          ...r,
+          estado: nuevoEstado,
+          fechaTerminado: isTerminado ? r.fechaTerminado || nowIso : (isReverting ? null : r.fechaTerminado),
+          fechaEntregado: isReverting ? null : r.fechaEntregado,
+          quienRecogio: isReverting ? null : r.quienRecogio,
+          prendas: Array.isArray(r.prendas)
+            ? r.prendas.map((p: any) => ({
+                ...p,
+                estado: nuevoEstado,
+                fechaTerminado: isTerminado ? p.fechaTerminado || nowIso : (isReverting ? null : p.fechaTerminado),
+              }))
+            : r.prendas,
+        }
+      })
+    )
+
+    try {
+      const res = await fetch('/api/db', {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'UPDATE_ESTADO_RECIBO_Y_PRENDAS', reciboId, nuevoEstado }),
+      })
+      if (!res.ok) throw new Error('Error al actualizar estado')
+    } catch (e) {
+      console.error(e)
+      loadData()
+      alert('Error al actualizar el estado.')
+    }
+  }
+
+  const handleSaveFechaEntrega = async (reciboId: string, nuevaFecha: string) => {
+    setRecibos((prev) =>
+      prev.map((r) => (r.id === reciboId ? { ...r, fechaEntrega: nuevaFecha } : r))
+    )
+    setEditingEntregaId(null)
+
+    try {
+      const res = await fetch('/api/db', {
+        method: 'PUT',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'UPDATE_FECHA_ENTREGA', id: reciboId, fechaEntrega: nuevaFecha }),
+      })
+      if (!res.ok) throw new Error('Error al actualizar fecha de entrega')
+    } catch (e) {
+      console.error(e)
+      loadData()
+      alert('Error al guardar la nueva fecha de entrega.')
     }
   }
 
@@ -476,12 +532,26 @@ function AdminDashboard() {
   const activeOperators = operadoras.filter((op) => op.activa)
   const filteredRecibos = recibos.filter((r) => {
     let match = true
-    if (filterCliente && !normalizeStr(r.cliente).includes(normalizeStr(filterCliente))) match = false
-    if (filterRecibo && !(r.numeroRecibo || '').toLowerCase().includes(filterRecibo.toLowerCase())) match = false
-    if (filterRecibido && !r.fechaRecibido.startsWith(filterRecibido)) match = false
-    if (filterEntrega && !r.fechaEntrega.startsWith(filterEntrega)) match = false
+    if (filterCliente) {
+      const term = normalizeStr(filterCliente)
+      const cName = normalizeStr(r.cliente || r.clienteNombre || '')
+      if (!cName.includes(term)) match = false
+    }
+    if (filterRecibo) {
+      const term = filterRecibo.toLowerCase().trim()
+      const num = (r.numeroRecibo || r.id || '').toString().toLowerCase()
+      if (!num.includes(term)) match = false
+    }
+    if (filterRecibido) {
+      const rRec = (r.fechaRecibido || r.fechaRegistro || '').slice(0, 10)
+      if (rRec !== filterRecibido) match = false
+    }
+    if (filterEntrega) {
+      const rEnt = (r.fechaEntrega || '').slice(0, 10)
+      if (rEnt !== filterEntrega) match = false
+    }
     if (filterOperadora) {
-      if (filterOperadora === 'unassigned' && r.operadoraId) match = false
+      if (filterOperadora === 'unassigned' && (r.operadoraId || r.operaria)) match = false
       else if (filterOperadora !== 'unassigned' && r.operadoraId !== filterOperadora) match = false
     }
     return match
@@ -855,7 +925,7 @@ function AdminDashboard() {
                     <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>Cliente</th>
                     <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>Prendas</th>
                     <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>Pago</th>
-                    <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>Fecha Entrega</th>
+                    <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>Entrega (Fecha y Hora)</th>
                     <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>Operadora</th>
                     <th style={{ padding: '0.75rem', textAlign: 'left', borderBottom: '1px solid #e2e8f0' }}>Estado</th>
                   </tr>
@@ -863,15 +933,15 @@ function AdminDashboard() {
                 <tbody>
                   {filteredRecibos.length === 0 ? (
                     <tr>
-                      <td colSpan={6} style={{ textAlign: 'center', padding: '1rem' }}>No hay recibos que coincidan con la búsqueda.</td>
+                      <td colSpan={8} style={{ textAlign: 'center', padding: '1rem' }}>No hay recibos que coincidan con la búsqueda.</td>
                     </tr>
                   ) : (
                     filteredRecibos.map((r) => (
                       <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{r.numeroRecibo || '-'}</td>
-                        <td style={{ padding: '0.75rem' }}>{r.fechaRegistro}</td>
+                        <td style={{ padding: '0.75rem' }}>{r.fechaRegistro || r.fechaRecibido}</td>
                         <td style={{ padding: '0.75rem' }}>
-                          {r.cliente} <br />
+                          {r.cliente || r.clienteNombre} <br />
                           <small style={{ color: '#64748b' }}>{r.telefono}</small>
                         </td>
                         <td style={{ padding: '0.75rem', maxWidth: '300px' }}>
@@ -910,17 +980,88 @@ function AdminDashboard() {
                             </div>
                           )}
                         </td>
-                        <td style={{ padding: '0.75rem' }}>{formatDateTime(r.fechaEntrega)}</td>
+                        <td style={{ padding: '0.75rem', minWidth: '160px' }}>
+                          {editingEntregaId === r.id ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem' }}>
+                              <input
+                                type="datetime-local"
+                                className="form-input"
+                                style={{ padding: '0.3rem', fontSize: '0.8rem' }}
+                                value={tempEntregaVal}
+                                onChange={(e) => setTempEntregaVal(e.target.value)}
+                              />
+                              <div style={{ display: 'flex', gap: '0.3rem' }}>
+                                <button
+                                  className="btn btn-primary"
+                                  style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', flex: 1 }}
+                                  onClick={() => handleSaveFechaEntrega(r.id, tempEntregaVal)}
+                                >
+                                  💾 Guardar
+                                </button>
+                                <button
+                                  className="btn btn-secondary"
+                                  style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem' }}
+                                  onClick={() => setEditingEntregaId(null)}
+                                >
+                                  ✖
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <div>
+                              {r.fechaEntrega ? (
+                                <div>
+                                  <div style={{ fontWeight: 'bold', color: '#1e293b' }}>
+                                    📅 {formatDateOnly(r.fechaEntrega)}
+                                  </div>
+                                  <div style={{ fontWeight: '800', color: '#dc2626', fontSize: '0.9rem', marginTop: '2px' }}>
+                                    ⏰ {formatTimeOnly(r.fechaEntrega) || 'Hora no esp.'}
+                                  </div>
+                                </div>
+                              ) : (
+                                <div style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.8rem' }}>Sin definir</div>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingEntregaId(r.id)
+                                  setTempEntregaVal(r.fechaEntrega ? r.fechaEntrega.slice(0, 16) : '')
+                                }}
+                                style={{
+                                  background: 'none',
+                                  border: 'none',
+                                  color: '#0284c7',
+                                  cursor: 'pointer',
+                                  fontSize: '0.75rem',
+                                  padding: '2px 0',
+                                  textDecoration: 'underline',
+                                  display: 'block',
+                                  marginTop: '4px',
+                                }}
+                              >
+                                ✏️ Cambiar fecha/hora
+                              </button>
+                            </div>
+                          )}
+                        </td>
                         <td style={{ padding: '0.75rem' }}>
-                          <select className="form-input" style={{ padding: '0.4rem', fontSize: '0.85rem' }} value={r.operadoraId || ''} onChange={(e) => assignOperator(r.id, e.target.value)}>
+                          <select
+                            className="form-input"
+                            style={{ padding: '0.4rem', fontSize: '0.85rem' }}
+                            value={r.operadoraId || ''}
+                            onChange={(e) => assignOperator(r.id, e.target.value)}
+                          >
                             <option value="">Sin Asignar</option>
                             {activeOperators.map((op) => (
                               <option key={op.id} value={op.id}>{op.nombre}</option>
                             ))}
+                            {r.operadoraId && !activeOperators.some(op => op.id === r.operadoraId) && (
+                              <option value={r.operadoraId}>{r.operaria || r.operadoraId}</option>
+                            )}
                           </select>
                         </td>
                         <td style={{ padding: '0.75rem' }}>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem', alignItems: 'flex-start' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.4rem', alignItems: 'flex-start' }}>
                             <button
                               type="button"
                               onClick={() => setStickerData(r)}
@@ -937,23 +1078,75 @@ function AdminDashboard() {
                             >
                               🏷️ Imprimir Sticker
                             </button>
-                            <span style={{ padding: '0.2rem 0.6rem', borderRadius: '1rem', fontSize: '0.8rem', fontWeight: 'bold', backgroundColor: r.estado === 'Entregado' ? '#e0e7ff' : r.estado === 'Terminado' ? '#dcfce7' : r.estado === 'En elaboración' ? '#fef08a' : '#f1f5f9', color: r.estado === 'Entregado' ? '#3730a3' : r.estado === 'Terminado' ? '#166534' : r.estado === 'En elaboración' ? '#854d0e' : '#475569' }}>
-                              {r.estado}
-                            </span>
+
+                            <div style={{ width: '100%' }}>
+                              <label style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 'bold', display: 'block', marginBottom: '2px' }}>
+                                Estado del Pedido:
+                              </label>
+                              <select
+                                value={r.estado || 'Pendiente'}
+                                onChange={(e) => handleUpdateEstado(r.id, e.target.value)}
+                                className="form-input"
+                                style={{
+                                  padding: '0.35rem 0.5rem',
+                                  fontSize: '0.8rem',
+                                  fontWeight: 'bold',
+                                  borderRadius: '0.5rem',
+                                  border: '1px solid #cbd5e1',
+                                  backgroundColor:
+                                    r.estado === 'Entregado'
+                                      ? '#e0e7ff'
+                                      : r.estado === 'Terminado'
+                                      ? '#dcfce7'
+                                      : r.estado === 'En elaboración'
+                                      ? '#fef08a'
+                                      : '#f1f5f9',
+                                  color:
+                                    r.estado === 'Entregado'
+                                      ? '#3730a3'
+                                      : r.estado === 'Terminado'
+                                      ? '#166534'
+                                      : r.estado === 'En elaboración'
+                                      ? '#854d0e'
+                                      : '#475569',
+                                }}
+                              >
+                                <option value="Pendiente">⏳ Pendiente</option>
+                                <option value="En elaboración">🧵 En elaboración</option>
+                                <option value="Terminado">✓ Terminado</option>
+                                <option value="Entregado">📦 Entregado</option>
+                              </select>
+                            </div>
+
                             {r.estado === 'Terminado' && (
-                              <button className="btn btn-primary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={() => setEntregaModal({ isOpen: true, reciboId: r.id, fecha: getCurrentLocalTimeStr(), nombre: '', pagoRestante: r.tipoPago !== 'Cancelado', metodoPagoRestante: 'Efectivo' })}>
-                                Entregar
+                              <button
+                                className="btn btn-primary"
+                                style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', backgroundColor: '#16a34a', borderColor: '#16a34a', width: '100%', fontWeight: 'bold' }}
+                                onClick={() => setEntregaModal({ isOpen: true, reciboId: r.id, fecha: getCurrentLocalTimeStr(), nombre: '', pagoRestante: r.tipoPago !== 'Cancelado', metodoPagoRestante: 'Efectivo' })}
+                              >
+                                🚀 Entregar Prenda
                               </button>
                             )}
+
                             {r.estado === 'Entregado' && (
-                              <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: '1.2' }}>
-                                A: <strong>{r.quienRecogio}</strong> <br />
+                              <div style={{ fontSize: '0.75rem', color: '#64748b', lineHeight: '1.2', backgroundColor: '#f8fafc', padding: '0.3rem', borderRadius: '4px', border: '1px solid #e2e8f0', width: '100%' }}>
+                                Entregado a: <strong>{r.quienRecogio || 'Cliente'}</strong> <br />
                                 {formatDateTime(r.fechaEntregado)}
                               </div>
                             )}
+
                             <button
                               className="btn"
-                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.75rem', marginTop: '0.5rem', backgroundColor: r.observacionOperadora && !r.respuestaAdministradora ? '#f97316' : '#f1f5f9', color: r.observacionOperadora && !r.respuestaAdministradora ? '#fff' : '#475569', border: 'none', fontWeight: 'bold', borderRadius: '0.5rem' }}
+                              style={{
+                                padding: '0.2rem 0.5rem',
+                                fontSize: '0.75rem',
+                                marginTop: '0.2rem',
+                                backgroundColor: r.observacionOperadora && !r.respuestaAdministradora ? '#f97316' : '#f1f5f9',
+                                color: r.observacionOperadora && !r.respuestaAdministradora ? '#fff' : '#475569',
+                                border: 'none',
+                                fontWeight: 'bold',
+                                borderRadius: '0.5rem',
+                              }}
                               onClick={() => setObsModal({ isOpen: true, reciboId: r.id, operadoraText: r.observacionOperadora || '', adminText: r.respuestaAdministradora || '' })}
                             >
                               Observaciones {r.observacionOperadora && !r.respuestaAdministradora ? '⚠️' : ''}

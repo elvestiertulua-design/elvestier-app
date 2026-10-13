@@ -51,10 +51,25 @@ export async function PUT(request: Request) {
 
     if (body.type === 'ASSIGN_OPERATOR') {
       const operadora = (currentData.operadoras || []).find((op: any) => op.id === body.operadoraId)
-      const operadoraNombre = operadora ? operadora.nombre : body.operadoraId
-      currentData.recibos = (currentData.recibos || []).map((r: any) =>
-        r.id === body.id ? { ...r, operadoraId: body.operadoraId, operaria: operadoraNombre } : r
-      )
+      const operadoraNombre = operadora ? operadora.nombre : (body.operadoraId || '')
+      currentData.recibos = (currentData.recibos || []).map((r: any) => {
+        if (r.id === body.id) {
+          const updatedPrendas = Array.isArray(r.prendas)
+            ? r.prendas.map((p: any) => ({
+                ...p,
+                operadoraId: body.operadoraId || '',
+                operaria: operadoraNombre,
+              }))
+            : r.prendas
+          return {
+            ...r,
+            operadoraId: body.operadoraId || '',
+            operaria: operadoraNombre,
+            prendas: updatedPrendas,
+          }
+        }
+        return r
+      })
     } else if (body.type === 'MARK_DELIVERED') {
       currentData.recibos = (currentData.recibos || []).map((r: any) =>
         r.id === body.id
@@ -118,21 +133,30 @@ export async function PUT(request: Request) {
       const nowIso = new Date().toISOString()
       currentData.recibos = (currentData.recibos || []).map((r: any) => {
         if (r.id === body.reciboId) {
+          const isTerminado = body.nuevoEstado === 'Terminado'
+          const isEntregado = body.nuevoEstado === 'Entregado'
+          const isReverting = body.nuevoEstado === 'Pendiente' || body.nuevoEstado === 'En elaboración'
           return {
             ...r,
             estado: body.nuevoEstado,
-            fechaTerminado: body.nuevoEstado === 'Terminado' ? (r.fechaTerminado || nowIso) : r.fechaTerminado,
+            fechaTerminado: isTerminado ? (r.fechaTerminado || nowIso) : (isReverting ? null : r.fechaTerminado),
+            fechaEntregado: isEntregado ? (r.fechaEntregado || nowIso) : (isReverting ? null : r.fechaEntregado),
+            quienRecogio: isReverting ? null : r.quienRecogio,
             prendas: Array.isArray(r.prendas)
               ? r.prendas.map((p: any) => ({
                   ...p,
-                  estado: body.nuevoEstado === 'Terminado' ? 'Terminado' : p.estado,
-                  fechaTerminado: body.nuevoEstado === 'Terminado' ? (p.fechaTerminado || nowIso) : p.fechaTerminado,
+                  estado: body.nuevoEstado,
+                  fechaTerminado: isTerminado ? (p.fechaTerminado || nowIso) : (isReverting ? null : p.fechaTerminado),
                 }))
               : r.prendas,
           }
         }
         return r
       })
+    } else if (body.type === 'UPDATE_FECHA_ENTREGA') {
+      currentData.recibos = (currentData.recibos || []).map((r: any) =>
+        r.id === body.id ? { ...r, fechaEntrega: body.fechaEntrega } : r
+      )
     } else if (body.type === 'UPDATE_OBS_OPERADORA') {
       currentData.recibos = (currentData.recibos || []).map((r: any) => {
         if (r.id === body.reciboId) {

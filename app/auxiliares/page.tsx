@@ -2,28 +2,7 @@
 
 import React, { useState, useEffect, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-
-function formatDateTime(dateStr: string) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
-  
-  // Convert to UTC-5 (Colombia)
-  const offset = -5 * 60 * 60 * 1000
-  const localDate = new Date(d.getTime() + offset)
-  
-  const yyyy = localDate.getUTCFullYear()
-  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
-  const dd = String(localDate.getUTCDate()).padStart(2, '0')
-  
-  let hours = localDate.getUTCHours()
-  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  hours = hours % 12
-  hours = hours ? hours : 12
-  
-  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
-}
+import { formatDateTime, formatDateOnly, formatTimeOnly } from '@/lib/dateUtils'
 
 function AuxiliaresContent() {
   const searchParams = useSearchParams()
@@ -174,8 +153,14 @@ function AuxiliaresContent() {
         match = false
       }
     }
-    if (filterRecibido && r.fechaRecibido && !r.fechaRecibido.startsWith(filterRecibido)) match = false
-    if (filterEntrega && r.fechaEntrega && !r.fechaEntrega.startsWith(filterEntrega)) match = false
+    if (filterRecibido) {
+      const rRec = (r.fechaRecibido || r.fechaRegistro || '').slice(0, 10)
+      if (rRec !== filterRecibido) match = false
+    }
+    if (filterEntrega) {
+      const rEnt = (r.fechaEntrega || '').slice(0, 10)
+      if (rEnt !== filterEntrega) match = false
+    }
     return match
   })
 
@@ -305,7 +290,16 @@ function AuxiliaresContent() {
                       <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{r.numeroRecibo || '-'}</td>
                       <td style={{ padding: '0.75rem' }}>{r.cliente}</td>
                       <td style={{ padding: '0.75rem' }}>{r.fechaRecibido}</td>
-                      <td style={{ padding: '0.75rem' }}>{formatDateTime(r.fechaEntrega)}</td>
+                      <td style={{ padding: '0.75rem' }}>
+                        {r.fechaEntrega ? (
+                          <div>
+                            <div style={{ fontWeight: 'bold', color: '#1e293b' }}>📅 {formatDateOnly(r.fechaEntrega)}</div>
+                            <div style={{ fontWeight: 'bold', color: '#dc2626', fontSize: '0.85rem' }}>⏰ {formatTimeOnly(r.fechaEntrega) || 'Sin hora'}</div>
+                          </div>
+                        ) : (
+                          <span style={{ color: '#94a3b8', fontStyle: 'italic', fontSize: '0.85rem' }}>Sin definir</span>
+                        )}
+                      </td>
                       <td style={{ padding: '0.75rem' }}>
                         <span style={{
                           padding: '0.25rem 0.5rem',

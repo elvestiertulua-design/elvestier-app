@@ -1,28 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-
-function formatDateTime(dateStr: string) {
-  if (!dateStr) return ''
-  const d = new Date(dateStr)
-  if (isNaN(d.getTime())) return dateStr
-  
-  // Convert to UTC-5 (Colombia)
-  const offset = -5 * 60 * 60 * 1000
-  const localDate = new Date(d.getTime() + offset)
-  
-  const yyyy = localDate.getUTCFullYear()
-  const mm = String(localDate.getUTCMonth() + 1).padStart(2, '0')
-  const dd = String(localDate.getUTCDate()).padStart(2, '0')
-  
-  let hours = localDate.getUTCHours()
-  const minutes = String(localDate.getUTCMinutes()).padStart(2, '0')
-  const ampm = hours >= 12 ? 'PM' : 'AM'
-  hours = hours % 12
-  hours = hours ? hours : 12
-  
-  return `${yyyy}-${mm}-${dd} a las ${hours}:${minutes} ${ampm}`
-}
+import { formatDateTime, formatDateOnly, formatTimeOnly, getDayName } from '@/lib/dateUtils'
 
 export default function OperadorasPage() {
   const [operadoras, setOperadoras] = useState<any[]>([])
@@ -36,6 +15,7 @@ export default function OperadorasPage() {
   const [filterEndDate, setFilterEndDate] = useState(new Date().toISOString().slice(0, 10))
   const [filterCliente, setFilterCliente] = useState('')
   const [filterRecibo, setFilterRecibo] = useState('')
+  const [filterEntrega, setFilterEntrega] = useState('')
 
   const [obsModal, setObsModal] = useState({
     isOpen: false,
@@ -213,8 +193,9 @@ export default function OperadorasPage() {
     const hasDelegatedPrenda = r.prendas && r.prendas.some((p: any) => p.operadoraId === currentOp.id)
     if (!isMainOp && !hasDelegatedPrenda) return false
 
-    if (filterCliente && !normalizeStr(r.cliente).includes(normalizeStr(filterCliente))) return false
-    if (filterRecibo && !(r.numeroRecibo || '').toLowerCase().includes(filterRecibo.toLowerCase())) return false
+    if (filterCliente && !normalizeStr(r.cliente || r.clienteNombre || '').includes(normalizeStr(filterCliente))) return false
+    if (filterRecibo && !(r.numeroRecibo || r.id || '').toString().toLowerCase().includes(filterRecibo.toLowerCase().trim())) return false
+    if (filterEntrega && !(r.fechaEntrega || '').slice(0, 10).startsWith(filterEntrega)) return false
 
     return true
   })
@@ -326,13 +307,25 @@ export default function OperadorasPage() {
               </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap' }}>
-              <div className="form-group" style={{ flex: 1, minWidth: '200px', marginBottom: 0 }}>
+            <div style={{ display: 'flex', gap: '1rem', marginBottom: '1.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div className="form-group" style={{ flex: 1, minWidth: '180px', marginBottom: 0 }}>
                 <input type="text" className="form-input" placeholder="Buscar por cliente..." value={filterCliente} onChange={(e) => setFilterCliente(e.target.value)} />
               </div>
-              <div className="form-group" style={{ flex: 1, minWidth: '150px', marginBottom: 0 }}>
+              <div className="form-group" style={{ flex: 1, minWidth: '130px', marginBottom: 0 }}>
                 <input type="text" className="form-input" placeholder="Buscar N° recibo..." value={filterRecibo} onChange={(e) => setFilterRecibo(e.target.value)} />
               </div>
+              <div className="form-group" style={{ flex: 1, minWidth: '180px', marginBottom: 0 }}>
+                <input type="date" className="form-input" title="Filtrar por fecha de entrega" value={filterEntrega} onChange={(e) => setFilterEntrega(e.target.value)} />
+              </div>
+              {(filterCliente || filterRecibo || filterEntrega) && (
+                <button
+                  className="btn btn-secondary"
+                  style={{ padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                  onClick={() => { setFilterCliente(''); setFilterRecibo(''); setFilterEntrega(''); }}
+                >
+                  Limpiar Filtros
+                </button>
+              )}
             </div>
 
             {activeTab === 'pendientes' && (
@@ -367,9 +360,27 @@ export default function OperadorasPage() {
                               RECIBO #{r.numeroRecibo}
                             </div>
                             <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#0f172a' }}>{r.cliente || r.clienteNombre}</div>
-                            {r.fechaEntrega && (
-                              <div style={{ fontSize: '0.9rem', color: '#ef4444', marginTop: '0.2rem', fontWeight: 'bold' }}>
-                                ⏱️ Entrega: {formatDateTime(r.fechaEntrega)}
+                            {r.fechaEntrega ? (
+                              <div style={{
+                                backgroundColor: '#fee2e2',
+                                border: '1px solid #f87171',
+                                padding: '0.45rem 0.8rem',
+                                borderRadius: '0.5rem',
+                                marginTop: '0.4rem',
+                                display: 'inline-flex',
+                                flexDirection: 'column',
+                                gap: '0.2rem',
+                              }}>
+                                <div style={{ color: '#991b1b', fontWeight: 'bold', fontSize: '0.9rem' }}>
+                                  📅 Fecha de Entrega: <span style={{ color: '#1e293b' }}>{formatDateOnly(r.fechaEntrega)}</span>
+                                </div>
+                                <div style={{ color: '#dc2626', fontWeight: '800', fontSize: '1.05rem', display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                                  ⏰ HORA DE ENTREGA: {formatTimeOnly(r.fechaEntrega) || 'Hora no especificada'}
+                                </div>
+                              </div>
+                            ) : (
+                              <div style={{ fontSize: '0.85rem', color: '#94a3b8', marginTop: '0.3rem', fontStyle: 'italic' }}>
+                                📅 Sin fecha ni hora de entrega registrada
                               </div>
                             )}
                             <div style={{ fontSize: '1rem', color: '#16a34a', marginTop: '0.3rem', fontWeight: 'bold' }}>
@@ -532,8 +543,22 @@ export default function OperadorasPage() {
                             <div style={{ fontSize: '0.8rem', color: '#64748b' }}>RECIBO #{r.numeroRecibo}</div>
                             <div style={{ fontSize: '1.1rem', fontWeight: 'bold', color: '#334155' }}>{r.cliente || r.clienteNombre}</div>
                             {r.fechaEntrega && (
-                              <div style={{ fontSize: '0.85rem', color: '#64748b', marginTop: '0.2rem' }}>
-                                <strong>Entrega:</strong> {formatDateTime(r.fechaEntrega)}
+                              <div style={{
+                                backgroundColor: '#f1f5f9',
+                                border: '1px solid #cbd5e1',
+                                padding: '0.35rem 0.65rem',
+                                borderRadius: '0.4rem',
+                                marginTop: '0.3rem',
+                                display: 'inline-flex',
+                                flexDirection: 'column',
+                                gap: '0.15rem',
+                              }}>
+                                <div style={{ fontSize: '0.85rem', color: '#475569', fontWeight: 'bold' }}>
+                                  📅 Fecha: {formatDateOnly(r.fechaEntrega)}
+                                </div>
+                                <div style={{ fontSize: '0.9rem', color: '#b91c1c', fontWeight: 'bold' }}>
+                                  ⏰ Hora de Entrega: {formatTimeOnly(r.fechaEntrega) || 'Hora no esp.'}
+                                </div>
                               </div>
                             )}
                           </div>
