@@ -1,7 +1,7 @@
 'use client'
 
 import React, { useState, useEffect } from 'react'
-import { formatDateTime, formatDateOnly, formatTimeOnly, getDayName } from '@/lib/dateUtils'
+import { formatDateTime, formatDateOnly, formatTimeOnly, getDayName, parseDateParts } from '@/lib/dateUtils'
 
 function getCurrentLocalTimeStr() {
   const tzOffset = new Date().getTimezoneOffset() * 60000
@@ -156,6 +156,8 @@ function AdminDashboard() {
   const [filterRecibido, setFilterRecibido] = useState('')
   const [filterEntrega, setFilterEntrega] = useState('')
   const [filterOperadora, setFilterOperadora] = useState('')
+  const [filterTerminado, setFilterTerminado] = useState('')
+  const [filterEstado, setFilterEstado] = useState('')
   const [editingEntregaId, setEditingEntregaId] = useState<string | null>(null)
   const [tempEntregaVal, setTempEntregaVal] = useState<string>('')
 
@@ -544,11 +546,22 @@ function AdminDashboard() {
     }
     if (filterRecibido) {
       const rRec = (r.fechaRecibido || r.fechaRegistro || '').slice(0, 10)
-      if (rRec !== filterRecibido) match = false
+      const parsedRec = parseDateParts(r.fechaRecibido || r.fechaRegistro).date
+      if (rRec !== filterRecibido && parsedRec !== filterRecibido) match = false
     }
     if (filterEntrega) {
       const rEnt = (r.fechaEntrega || '').slice(0, 10)
-      if (rEnt !== filterEntrega) match = false
+      const parsedEnt = parseDateParts(r.fechaEntrega).date
+      if (rEnt !== filterEntrega && parsedEnt !== filterEntrega) match = false
+    }
+    if (filterTerminado) {
+      const rTerm = (r.fechaTerminado || '').slice(0, 10)
+      const parsedTerm = parseDateParts(r.fechaTerminado).date
+      if (rTerm !== filterTerminado && parsedTerm !== filterTerminado) match = false
+    }
+    if (filterEstado) {
+      const rEstado = r.estado || 'Pendiente'
+      if (rEstado !== filterEstado) match = false
     }
     if (filterOperadora) {
       if (filterOperadora === 'unassigned' && (r.operadoraId || r.operaria)) match = false
@@ -893,6 +906,20 @@ function AdminDashboard() {
                 <input type="date" className="form-input" value={filterRecibido} onChange={(e) => setFilterRecibido(e.target.value)} />
               </div>
               <div className="form-group">
+                <label className="form-label" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#64748b' }}>Estado del Pedido</label>
+                <select className="form-input" value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)}>
+                  <option value="">Todos los Estados</option>
+                  <option value="Pendiente">⏳ Pendiente</option>
+                  <option value="En elaboración">🧵 En elaboración</option>
+                  <option value="Terminado">✓ Terminado</option>
+                  <option value="Entregado">📦 Entregado</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#64748b' }}>Fecha de Terminado</label>
+                <input type="date" className="form-input" value={filterTerminado} onChange={(e) => setFilterTerminado(e.target.value)} />
+              </div>
+              <div className="form-group">
                 <label className="form-label" style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.9rem', color: '#64748b' }}>Fecha de Entrega (Salida)</label>
                 <input type="date" className="form-input" value={filterEntrega} onChange={(e) => setFilterEntrega(e.target.value)} />
               </div>
@@ -907,8 +934,20 @@ function AdminDashboard() {
                 </select>
               </div>
             </div>
-            {(filterCliente || filterRecibo || filterRecibido || filterEntrega || filterOperadora) && (
-              <button className="btn btn-secondary" style={{ marginTop: '1rem', padding: '0.5rem 1rem', fontSize: '0.85rem' }} onClick={() => { setFilterCliente(''); setFilterRecibo(''); setFilterRecibido(''); setFilterEntrega(''); setFilterOperadora('') }}>
+            {(filterCliente || filterRecibo || filterRecibido || filterEntrega || filterOperadora || filterTerminado || filterEstado) && (
+              <button
+                className="btn btn-secondary"
+                style={{ marginTop: '1rem', padding: '0.5rem 1rem', fontSize: '0.85rem' }}
+                onClick={() => {
+                  setFilterCliente('')
+                  setFilterRecibo('')
+                  setFilterRecibido('')
+                  setFilterEntrega('')
+                  setFilterOperadora('')
+                  setFilterTerminado('')
+                  setFilterEstado('')
+                }}
+              >
                 Limpiar Filtros
               </button>
             )}
@@ -1119,13 +1158,20 @@ function AdminDashboard() {
                             </div>
 
                             {r.estado === 'Terminado' && (
-                              <button
-                                className="btn btn-primary"
-                                style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', backgroundColor: '#16a34a', borderColor: '#16a34a', width: '100%', fontWeight: 'bold' }}
-                                onClick={() => setEntregaModal({ isOpen: true, reciboId: r.id, fecha: getCurrentLocalTimeStr(), nombre: '', pagoRestante: r.tipoPago !== 'Cancelado', metodoPagoRestante: 'Efectivo' })}
-                              >
-                                🚀 Entregar Prenda
-                              </button>
+                              <>
+                                {r.fechaTerminado && (
+                                  <div style={{ fontSize: '0.72rem', color: '#166534', backgroundColor: '#f0fdf4', padding: '0.2rem 0.4rem', borderRadius: '4px', border: '1px solid #bbf7d0', width: '100%' }}>
+                                    Terminado: <strong>{formatDateTime(r.fechaTerminado)}</strong>
+                                  </div>
+                                )}
+                                <button
+                                  className="btn btn-primary"
+                                  style={{ padding: '0.35rem 0.7rem', fontSize: '0.75rem', backgroundColor: '#16a34a', borderColor: '#16a34a', width: '100%', fontWeight: 'bold' }}
+                                  onClick={() => setEntregaModal({ isOpen: true, reciboId: r.id, fecha: getCurrentLocalTimeStr(), nombre: '', pagoRestante: r.tipoPago !== 'Cancelado', metodoPagoRestante: 'Efectivo' })}
+                                >
+                                  🚀 Entregar Prenda
+                                </button>
+                              </>
                             )}
 
                             {r.estado === 'Entregado' && (
