@@ -252,6 +252,7 @@ function MainForm() {
     valorTotal: '',
   })
   const [savedNumeroRecibo, setSavedNumeroRecibo] = useState<string | null>(null)
+  const [lastSavedSnapshot, setLastSavedSnapshot] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
   const [tipoPago, setTipoPago] = useState('Pendiente')
@@ -270,16 +271,13 @@ function MainForm() {
         if (parsed.tipoPago) setTipoPago(parsed.tipoPago)
         if (parsed.metodoPago) setMetodoPago(parsed.metodoPago)
         if (parsed.abono) setAbono(parsed.abono)
-        if (parsed.savedNumeroRecibo) {
-          setSavedNumeroRecibo(parsed.savedNumeroRecibo)
-        }
       }
     } catch (e) {}
   }, [])
 
   useEffect(() => {
-    localStorage.setItem('elvestier_draft', JSON.stringify({ formData, prendas, tipoPago, abono, savedNumeroRecibo, metodoPago }))
-  }, [formData, prendas, tipoPago, abono, savedNumeroRecibo, metodoPago])
+    localStorage.setItem('elvestier_draft', JSON.stringify({ formData, prendas, tipoPago, abono, metodoPago }))
+  }, [formData, prendas, tipoPago, abono, metodoPago])
 
   useEffect(() => {
     fetch('/api/db?t=' + Date.now())
@@ -311,6 +309,10 @@ function MainForm() {
 
   const handleFormChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target
+    if (savedNumeroRecibo) {
+      setSavedNumeroRecibo(null)
+      setLastSavedSnapshot(null)
+    }
     if (name === 'cliente') {
       const found = clientesList.find((c) => c.nombre.toLowerCase() === value.toLowerCase())
       if (found) {
@@ -341,17 +343,29 @@ function MainForm() {
       alert('Por favor completa todos los campos de la prenda (Cantidad, Descripción y Valor Unitario).')
       return
     }
+    if (savedNumeroRecibo) {
+      setSavedNumeroRecibo(null)
+      setLastSavedSnapshot(null)
+    }
     setPrendas([...prendas, itemInput])
     setItemInput({ cantidad: '', descripcion: '', valorUnitario: '', valorTotal: '' })
   }
 
   const removeItem = (idx: number) => {
+    if (savedNumeroRecibo) {
+      setSavedNumeroRecibo(null)
+      setLastSavedSnapshot(null)
+    }
     const updated = [...prendas]
     updated.splice(idx, 1)
     setPrendas(updated)
   }
 
   const editItem = (idx: number) => {
+    if (savedNumeroRecibo) {
+      setSavedNumeroRecibo(null)
+      setLastSavedSnapshot(null)
+    }
     setItemInput(prendas[idx])
     const updated = [...prendas]
     updated.splice(idx, 1)
@@ -361,12 +375,44 @@ function MainForm() {
   const totalPrendas = prendas.reduce((acc, curr) => acc + (Number(curr.cantidad) || 0), 0)
   const granTotal = prendas.reduce((acc, curr) => acc + (Number(curr.valorTotal) || 0), 0)
 
+  const handleNuevoPedido = () => {
+    setFormData({
+      cliente: '',
+      telefono: '',
+      fechaRecibido: '',
+      fechaEntrega: '',
+      observaciones: '',
+    })
+    setPrendas([])
+    setItemInput({ cantidad: '', descripcion: '', valorUnitario: '', valorTotal: '' })
+    setTipoPago('Pendiente')
+    setAbono('')
+    setMetodoPago('Efectivo')
+    setSavedNumeroRecibo(null)
+    setLastSavedSnapshot(null)
+    setMessage('')
+    localStorage.removeItem('elvestier_draft')
+  }
+
   const saveData = async () => {
     if (isSaving.current) return false
 
-    // Si ya se guardó este pedido, no lo duplicamos
-    if (savedNumeroRecibo) {
+    // Snapshot exacto de este cliente y prendas
+    const currentSnapshot = JSON.stringify({
+      c: (formData.cliente || '').trim().toUpperCase(),
+      t: (formData.telefono || '').trim(),
+      p: prendas,
+      tot: granTotal,
+    })
+
+    // Si ya se guardó este MISMO pedido sin cambios, reutilizamos el recibo ya generado
+    if (savedNumeroRecibo && lastSavedSnapshot === currentSnapshot) {
       return { numeroRecibo: savedNumeroRecibo }
+    }
+
+    if (!formData.cliente || !formData.cliente.trim()) {
+      alert('Debes ingresar el nombre del cliente.')
+      return false
     }
 
     if (prendas.length === 0) {
@@ -416,6 +462,7 @@ function MainForm() {
       const respData = await res.json()
       if (respData.recibo && respData.recibo.numeroRecibo) {
         setSavedNumeroRecibo(respData.recibo.numeroRecibo)
+        setLastSavedSnapshot(currentSnapshot)
       }
       setMessage(`¡Recibo #${respData.recibo?.numeroRecibo} guardado con éxito!`)
       return respData.recibo
@@ -527,6 +574,52 @@ function MainForm() {
         {message && (
           <div style={{ padding: '1rem', marginBottom: '1rem', borderRadius: '0.5rem', backgroundColor: message.includes('error') || message.includes('❌') ? '#fee2e2' : '#dcfce7', color: message.includes('error') || message.includes('❌') ? '#991b1b' : '#166534', textAlign: 'center', fontWeight: '500' }}>
             {message}
+          </div>
+        )}
+
+        {savedNumeroRecibo && (
+          <div
+            style={{
+              padding: '1.2rem',
+              marginBottom: '1.5rem',
+              borderRadius: '0.75rem',
+              backgroundColor: '#ecfdf5',
+              border: '2px solid #10b981',
+              color: '#065f46',
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: '1rem',
+              boxShadow: '0 4px 6px -1px rgba(0,0,0,0.05)',
+            }}
+          >
+            <div>
+              <div style={{ fontSize: '1.2rem', fontWeight: '800', color: '#047857' }}>
+                ✅ Pedido guardado exitosamente como Recibo #{savedNumeroRecibo}
+              </div>
+              <div style={{ fontSize: '0.95rem', color: '#065f46', marginTop: '4px' }}>
+                Cliente: <strong>{formData.cliente}</strong> &bull; Total: <strong>${granTotal.toLocaleString('es-CO')}</strong>
+              </div>
+              <div style={{ fontSize: '0.85rem', color: '#047857', marginTop: '4px' }}>
+                Ya puedes imprimir el recibo (2), imprimir el sticker (3) o enviar el WhatsApp (1).
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleNuevoPedido}
+              className="btn btn-primary"
+              style={{
+                backgroundColor: '#059669',
+                borderColor: '#059669',
+                fontWeight: 'bold',
+                padding: '0.75rem 1.4rem',
+                fontSize: '1rem',
+                cursor: 'pointer',
+              }}
+            >
+              ➕ Registrar Siguiente Cliente
+            </button>
           </div>
         )}
 
@@ -731,16 +824,7 @@ function MainForm() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                setFormData({ cliente: '', telefono: '', fechaRecibido: '', fechaEntrega: '', observaciones: '' })
-                setPrendas([])
-                setItemInput({ cantidad: '', descripcion: '', valorUnitario: '', valorTotal: '' })
-                setTipoPago('Pendiente')
-                setAbono('')
-                setMetodoPago('Efectivo')
-                setSavedNumeroRecibo(null)
-                localStorage.removeItem('elvestier_draft')
-              }}
+              onClick={handleNuevoPedido}
               className="btn btn-primary"
               style={{ fontSize: '1.1rem', backgroundColor: '#ef4444', border: 'none' }}
             >
