@@ -572,31 +572,6 @@ function AdminDashboard() {
     }
   }
 
-  if (loading) {
-    return <div style={{ textAlign: 'center', padding: '2rem' }}>Cargando datos...</div>
-  }
-
-  if (stickerData) {
-    return (
-      <div className="print-preview-screen animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem', minHeight: '100vh' }}>
-        <div className="no-print" style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
-          <button onClick={() => setStickerData(null)} className="btn btn-secondary">
-            🔙 Volver al Panel de Administradora
-          </button>
-          <button onClick={() => window.print()} className="btn btn-primary">
-            🖨️ CONFIRMAR IMPRESIÓN STICKER
-          </button>
-        </div>
-        <div className="no-print" style={{ marginBottom: '1rem', color: '#6b7280', fontSize: '0.9rem', textAlign: 'center' }}>
-          Vista previa de Sticker generada para {stickerData.cliente || stickerData.clienteNombre}.
-        </div>
-        <div className="print-area-wrapper" style={{ background: '#fff', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', padding: '10px' }}>
-          <StickerPrintView data={stickerData} />
-        </div>
-      </div>
-    )
-  }
-
   const normalizeStr = (str: string) => str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "").toLowerCase() : ""
 
   const activeOperators = useMemo(() => operadoras.filter((op) => op.activa), [operadoras])
@@ -734,6 +709,31 @@ function AdminDashboard() {
           >
             Última »
           </button>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return <div style={{ textAlign: 'center', padding: '2rem' }}>Cargando datos...</div>
+  }
+
+  if (stickerData) {
+    return (
+      <div className="print-preview-screen animate-fade-in" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '2rem', minHeight: '100vh' }}>
+        <div className="no-print" style={{ marginBottom: '2rem', display: 'flex', gap: '1rem', flexWrap: 'wrap', justifyContent: 'center' }}>
+          <button onClick={() => setStickerData(null)} className="btn btn-secondary">
+            🔙 Volver al Panel de Administradora
+          </button>
+          <button onClick={() => window.print()} className="btn btn-primary">
+            🖨️ CONFIRMAR IMPRESIÓN STICKER
+          </button>
+        </div>
+        <div className="no-print" style={{ marginBottom: '1rem', color: '#6b7280', fontSize: '0.9rem', textAlign: 'center' }}>
+          Vista previa de Sticker generada para {stickerData.cliente || stickerData.clienteNombre}.
+        </div>
+        <div className="print-area-wrapper" style={{ background: '#fff', boxShadow: '0 10px 25px rgba(0,0,0,0.1)', padding: '10px' }}>
+          <StickerPrintView data={stickerData} />
         </div>
       </div>
     )
