@@ -5,12 +5,8 @@ export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    const envVars = {
-      kvUrl: process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL,
-      redisUrl: process.env.REDIS_URL
-    }
     const data = await getDbData()
-    return NextResponse.json({ ...data, envVars })
+    return NextResponse.json(data)
   } catch (error) {
     return NextResponse.json({ error: 'Error al leer la base de datos' }, { status: 500 })
   }

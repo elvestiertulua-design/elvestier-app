@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { formatDateTime, formatDateOnly, formatTimeOnly, getDayName, parseDateParts, formatEntregaCompleta } from '@/lib/dateUtils'
 
 function getCurrentLocalTimeStr() {
@@ -148,6 +148,9 @@ function AdminDashboard() {
   const [egresos, setEgresos] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [cajaDate, setCajaDate] = useState(() => getCurrentLocalTimeStr().split('T')[0])
+
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(25)
 
   const [nuevaOperadoraNombre, setNuevaOperadoraNombre] = useState('')
   const [nuevaAuxiliarNombre, setNuevaAuxiliarNombre] = useState('')
@@ -396,111 +399,176 @@ function AdminDashboard() {
   const handleEntregaSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     const target = recibos.find((r) => r.id === entregaModal.reciboId)
+    const entregaReciboId = entregaModal.reciboId
+    const fecha = entregaModal.fecha
+    const nombre = entregaModal.nombre
+    const pagoRestante = entregaModal.pagoRestante
+    const metodoPagoRestante = entregaModal.metodoPagoRestante
+
+    // Actualización optimista inmediata en memoria
+    setRecibos((prev) =>
+      prev.map((r) => {
+        if (r.id === entregaReciboId) {
+          const isCancelado = pagoRestante || r.tipoPago === 'Cancelado'
+          const newMetodo = pagoRestante && r.metodoPago ? `${r.metodoPago} y ${metodoPagoRestante}` : (pagoRestante ? metodoPagoRestante : r.metodoPago)
+          return {
+            ...r,
+            estado: 'Entregado',
+            fechaEntregado: fecha,
+            quienRecogio: nombre,
+            tipoPago: isCancelado ? 'Cancelado' : r.tipoPago,
+            metodoPago: newMetodo,
+            valorPagar: isCancelado ? (r.granTotal || r.valorPagar) : r.valorPagar,
+            saldo: isCancelado ? 0 : r.saldo,
+            prendas: Array.isArray(r.prendas)
+              ? r.prendas.map((p: any) => ({ ...p, estado: 'Entregado', fechaEntregado: fecha }))
+              : r.prendas,
+          }
+        }
+        return r
+      })
+    )
+
+    setEntregaModal({ isOpen: false, reciboId: '', fecha: getCurrentLocalTimeStr(), nombre: '', pagoRestante: false, metodoPagoRestante: 'Efectivo' })
+
     try {
       const payload: any = {
         type: 'MARK_DELIVERED',
-        id: entregaModal.reciboId,
-        fechaEntregado: entregaModal.fecha,
-        quienRecogio: entregaModal.nombre,
+        id: entregaReciboId,
+        fechaEntregado: fecha,
+        quienRecogio: nombre,
       }
-      if (entregaModal.pagoRestante && target) {
+      if (pagoRestante && target) {
         payload.tipoPago = 'Cancelado'
-        payload.metodoPago = target.metodoPago ? `${target.metodoPago} y ${entregaModal.metodoPagoRestante}` : entregaModal.metodoPagoRestante
+        payload.metodoPago = target.metodoPago ? `${target.metodoPago} y ${metodoPagoRestante}` : metodoPagoRestante
         payload.valorPagar = target.granTotal
         payload.saldo = 0
       }
 
-      await fetch('/api/db', {
+      const res = await fetch('/api/db', {
         method: 'PUT',
+        keepalive: true,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       })
-
-      setEntregaModal({ ...entregaModal, isOpen: false, reciboId: '', nombre: '', pagoRestante: false })
-      loadData()
+      if (!res.ok) throw new Error('Error al registrar la entrega')
     } catch (e) {
       console.error(e)
+      alert('Hubo un error al guardar la entrega. Se recargarán los datos.')
+      loadData()
     }
   }
 
   const handleObsSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    const targetId = obsModal.reciboId
+    const text = obsModal.adminText
+
+    setRecibos((prev) =>
+      prev.map((r) => (r.id === targetId ? { ...r, respuestaAdministradora: text } : r))
+    )
+    setObsModal({ isOpen: false, reciboId: '', operadoraText: '', adminText: '' })
+
     try {
-      await fetch('/api/db', {
+      const res = await fetch('/api/db', {
         method: 'PUT',
+        keepalive: true,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           type: 'UPDATE_OBSERVATIONS',
-          id: obsModal.reciboId,
-          respuestaAdministradora: obsModal.adminText,
+          id: targetId,
+          respuestaAdministradora: text,
         }),
       })
-      setObsModal({ ...obsModal, isOpen: false, reciboId: '', adminText: '' })
-      loadData()
+      if (!res.ok) throw new Error('Error al guardar observación')
     } catch (e) {
       console.error(e)
+      alert('Error al guardar la observación.')
+      loadData()
     }
   }
 
   const handleAddOperator = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!nuevaOperadoraNombre.trim()) return
-    const updated = [...operadoras, { id: Date.now().toString(), nombre: nuevaOperadoraNombre.trim(), activa: true, token: Math.random().toString(36).substring(2, 10) }]
+    const newOp = {
+      id: Date.now().toString(),
+      nombre: nuevaOperadoraNombre.trim(),
+      activa: true,
+      token: Math.random().toString(36).substring(2, 10),
+    }
+    const updated = [...operadoras, newOp]
+    setOperadoras(updated)
+    setNuevaOperadoraNombre('')
+
     try {
-      await fetch('/api/db', {
+      const res = await fetch('/api/db', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'MANAGE_OPERATORS', operadoras: updated }),
       })
-      setNuevaOperadoraNombre('')
-      loadData()
+      if (!res.ok) throw new Error('Error al guardar operadora')
     } catch (e) {
       console.error(e)
+      loadData()
     }
   }
 
   const toggleOperatorStatus = async (id: string, newStatus: boolean) => {
     const updated = operadoras.map((op) => (op.id === id ? { ...op, activa: newStatus } : op))
+    setOperadoras(updated)
     try {
-      await fetch('/api/db', {
+      const res = await fetch('/api/db', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'MANAGE_OPERATORS', operadoras: updated }),
       })
-      loadData()
+      if (!res.ok) throw new Error('Error al actualizar operadora')
     } catch (e) {
       console.error(e)
+      loadData()
     }
   }
 
   const handleAddAuxiliar = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!nuevaAuxiliarNombre.trim()) return
-    const updated = [...auxiliares, { id: Date.now().toString(), nombre: nuevaAuxiliarNombre.trim(), activa: true, token: Math.random().toString(36).substring(2, 10) }]
+    const newAux = {
+      id: Date.now().toString(),
+      nombre: nuevaAuxiliarNombre.trim(),
+      activa: true,
+      token: Math.random().toString(36).substring(2, 10),
+    }
+    const updated = [...auxiliares, newAux]
+    setAuxiliares(updated)
+    setNuevaAuxiliarNombre('')
+
     try {
-      await fetch('/api/db', {
+      const res = await fetch('/api/db', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'MANAGE_AUXILIARES', auxiliares: updated }),
       })
-      setNuevaAuxiliarNombre('')
-      loadData()
+      if (!res.ok) throw new Error('Error al guardar auxiliar')
     } catch (e) {
       console.error(e)
+      loadData()
     }
   }
 
   const toggleAuxiliarStatus = async (id: string, newStatus: boolean) => {
     const updated = auxiliares.map((a) => (a.id === id ? { ...a, activa: newStatus } : a))
+    setAuxiliares(updated)
     try {
-      await fetch('/api/db', {
+      const res = await fetch('/api/db', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ type: 'MANAGE_AUXILIARES', auxiliares: updated }),
       })
-      loadData()
+      if (!res.ok) throw new Error('Error al actualizar auxiliar')
     } catch (e) {
       console.error(e)
+      loadData()
     }
   }
 
@@ -531,44 +599,145 @@ function AdminDashboard() {
 
   const normalizeStr = (str: string) => str ? str.normalize('NFD').replace(/[\u0300-\u036f]/g, "").replace(/\s+/g, "").toLowerCase() : ""
 
-  const activeOperators = operadoras.filter((op) => op.activa)
-  const filteredRecibos = recibos.filter((r) => {
-    let match = true
-    if (filterCliente) {
-      const term = normalizeStr(filterCliente)
-      const cName = normalizeStr(r.cliente || r.clienteNombre || '')
-      if (!cName.includes(term)) match = false
-    }
-    if (filterRecibo) {
-      const term = filterRecibo.toLowerCase().trim()
-      const num = (r.numeroRecibo || r.id || '').toString().toLowerCase()
-      if (!num.includes(term)) match = false
-    }
-    if (filterRecibido) {
-      const rRec = (r.fechaRecibido || r.fechaRegistro || '').slice(0, 10)
-      const parsedRec = parseDateParts(r.fechaRecibido || r.fechaRegistro).date
-      if (rRec !== filterRecibido && parsedRec !== filterRecibido) match = false
-    }
-    if (filterEntrega) {
-      const rEnt = (r.fechaEntrega || '').slice(0, 10)
-      const parsedEnt = parseDateParts(r.fechaEntrega).date
-      if (rEnt !== filterEntrega && parsedEnt !== filterEntrega) match = false
-    }
-    if (filterTerminado) {
-      const rTerm = (r.fechaTerminado || '').slice(0, 10)
-      const parsedTerm = parseDateParts(r.fechaTerminado).date
-      if (rTerm !== filterTerminado && parsedTerm !== filterTerminado) match = false
-    }
-    if (filterEstado) {
-      const rEstado = r.estado || 'Pendiente'
-      if (rEstado !== filterEstado) match = false
-    }
-    if (filterOperadora) {
-      if (filterOperadora === 'unassigned' && (r.operadoraId || r.operaria)) match = false
-      else if (filterOperadora !== 'unassigned' && r.operadoraId !== filterOperadora) match = false
-    }
-    return match
-  })
+  const activeOperators = useMemo(() => operadoras.filter((op) => op.activa), [operadoras])
+
+  const filteredRecibos = useMemo(() => {
+    return recibos.filter((r) => {
+      let match = true
+      if (filterCliente) {
+        const term = normalizeStr(filterCliente)
+        const cName = normalizeStr(r.cliente || r.clienteNombre || '')
+        if (!cName.includes(term)) match = false
+      }
+      if (filterRecibo) {
+        const term = filterRecibo.toLowerCase().trim()
+        const num = (r.numeroRecibo || r.id || '').toString().toLowerCase()
+        if (!num.includes(term)) match = false
+      }
+      if (filterRecibido) {
+        const rRec = (r.fechaRecibido || r.fechaRegistro || '').slice(0, 10)
+        const parsedRec = parseDateParts(r.fechaRecibido || r.fechaRegistro).date
+        if (rRec !== filterRecibido && parsedRec !== filterRecibido) match = false
+      }
+      if (filterEntrega) {
+        const rEnt = (r.fechaEntrega || '').slice(0, 10)
+        const parsedEnt = parseDateParts(r.fechaEntrega).date
+        if (rEnt !== filterEntrega && parsedEnt !== filterEntrega) match = false
+      }
+      if (filterTerminado) {
+        const rTerm = (r.fechaTerminado || '').slice(0, 10)
+        const parsedTerm = parseDateParts(r.fechaTerminado).date
+        if (rTerm !== filterTerminado && parsedTerm !== filterTerminado) match = false
+      }
+      if (filterEstado) {
+        const rEstado = r.estado || 'Pendiente'
+        if (rEstado !== filterEstado) match = false
+      }
+      if (filterOperadora) {
+        if (filterOperadora === 'unassigned' && (r.operadoraId || r.operaria)) match = false
+        else if (filterOperadora !== 'unassigned' && r.operadoraId !== filterOperadora) match = false
+      }
+      return match
+    })
+  }, [recibos, filterCliente, filterRecibo, filterRecibido, filterEntrega, filterTerminado, filterEstado, filterOperadora])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterCliente, filterRecibo, filterRecibido, filterEntrega, filterTerminado, filterEstado, filterOperadora, itemsPerPage])
+
+  const totalPages = Math.ceil(filteredRecibos.length / itemsPerPage) || 1
+
+  const paginatedRecibos = useMemo(() => {
+    const start = (currentPage - 1) * itemsPerPage
+    return filteredRecibos.slice(start, start + itemsPerPage)
+  }, [filteredRecibos, currentPage, itemsPerPage])
+
+  const renderPaginationControls = () => {
+    if (filteredRecibos.length === 0) return null
+    const startIndex = (currentPage - 1) * itemsPerPage + 1
+    const endIndex = Math.min(currentPage * itemsPerPage, filteredRecibos.length)
+
+    return (
+      <div
+        style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          flexWrap: 'wrap',
+          gap: '0.75rem',
+          padding: '0.75rem 1rem',
+          backgroundColor: '#f8fafc',
+          borderRadius: '0.5rem',
+          border: '1px solid #e2e8f0',
+          margin: '1rem 0',
+          fontSize: '0.85rem',
+        }}
+      >
+        <div style={{ color: '#475569', display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+          <span>
+            Mostrando <strong>{startIndex} - {endIndex}</strong> de <strong>{filteredRecibos.length}</strong> pedidos
+          </span>
+          <span style={{ color: '#cbd5e1' }}>|</span>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+            <span>Mostrar:</span>
+            <select
+              value={itemsPerPage}
+              onChange={(e) => setItemsPerPage(Number(e.target.value))}
+              className="form-input"
+              style={{ padding: '0.2rem 0.5rem', fontSize: '0.85rem', width: 'auto' }}
+            >
+              <option value={25}>25</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+              <option value={200}>200</option>
+            </select>
+          </label>
+        </div>
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+          <button
+            type="button"
+            onClick={() => setCurrentPage(1)}
+            disabled={currentPage === 1}
+            className="btn btn-secondary"
+            style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', opacity: currentPage === 1 ? 0.4 : 1, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+          >
+            « Primera
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
+            disabled={currentPage === 1}
+            className="btn btn-secondary"
+            style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', opacity: currentPage === 1 ? 0.4 : 1, cursor: currentPage === 1 ? 'not-allowed' : 'pointer' }}
+          >
+            ‹ Anterior
+          </button>
+          <span style={{ fontWeight: 'bold', color: '#0f172a', padding: '0 0.5rem' }}>
+            Pág. {currentPage} de {totalPages}
+          </span>
+          <button
+            type="button"
+            onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
+            disabled={currentPage === totalPages}
+            className="btn btn-secondary"
+            style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', opacity: currentPage === totalPages ? 0.4 : 1, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+          >
+            Siguiente ›
+          </button>
+          <button
+            type="button"
+            onClick={() => setCurrentPage(totalPages)}
+            disabled={currentPage === totalPages}
+            className="btn btn-secondary"
+            style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', opacity: currentPage === totalPages ? 0.4 : 1, cursor: currentPage === totalPages ? 'not-allowed' : 'pointer' }}
+          >
+            Última »
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <main className="main-container" style={{ maxWidth: '1000px' }}>
@@ -889,8 +1058,9 @@ function AdminDashboard() {
           )
         })()}
 
-        <div style={{ display: activeTab === 'list' ? 'block' : 'none' }}>
-          <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginBottom: '2rem' }}>
+        {activeTab === 'list' && (
+          <div>
+            <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginBottom: '2rem' }}>
             <h2 style={{ marginTop: 0, color: '#334155' }}>Buscador de Paquetes</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem' }}>
               <div className="form-group">
@@ -955,6 +1125,7 @@ function AdminDashboard() {
 
           <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0', marginBottom: '2rem' }}>
             <h2 style={{ marginTop: 0, color: '#334155' }}>Asignación de Paquetes</h2>
+            {renderPaginationControls()}
             <div className="table-container">
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.9rem' }}>
                 <thead style={{ backgroundColor: '#f1f5f9' }}>
@@ -975,7 +1146,7 @@ function AdminDashboard() {
                       <td colSpan={8} style={{ textAlign: 'center', padding: '1rem' }}>No hay recibos que coincidan con la búsqueda.</td>
                     </tr>
                   ) : (
-                    filteredRecibos.map((r) => (
+                    paginatedRecibos.map((r) => (
                       <tr key={r.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
                         <td style={{ padding: '0.75rem', fontWeight: 'bold' }}>{r.numeroRecibo || '-'}</td>
                         <td style={{ padding: '0.75rem' }}>{r.fechaRegistro || r.fechaRecibido}</td>
@@ -1205,6 +1376,7 @@ function AdminDashboard() {
                 </tbody>
               </table>
             </div>
+            {renderPaginationControls()}
           </div>
 
           <div style={{ backgroundColor: '#fff', padding: '1.5rem', borderRadius: '0.5rem', border: '1px solid #e2e8f0' }}>
@@ -1272,6 +1444,7 @@ function AdminDashboard() {
             </div>
           </div>
         </div>
+      )}
 
         {entregaModal.isOpen && (
           <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: '15vh', zIndex: 9999, overflowY: 'auto' }}>

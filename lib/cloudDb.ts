@@ -18,7 +18,8 @@ const initialDbData = {
     { id: '2', nombre: 'Jessica', activa: true, token: Math.random().toString(36).substring(2, 10) }
   ],
   recibos: [],
-  asistencia: []
+  asistencia: [],
+  egresos: []
 }
 
 // Variable global para mantener la conexión a Redis reutilizable en Vercel
@@ -69,7 +70,8 @@ export async function getDbData() {
           operadoras: parsed.operadoras || initialDbData.operadoras,
           auxiliares: parsed.auxiliares || initialDbData.auxiliares,
           recibos: parsed.recibos || [],
-          asistencia: parsed.asistencia || []
+          asistencia: parsed.asistencia || [],
+          egresos: parsed.egresos || []
         }
       }
     } catch (e) {
@@ -89,7 +91,8 @@ export async function getDbData() {
           operadoras: parsed.operadoras || initialDbData.operadoras,
           auxiliares: parsed.auxiliares || initialDbData.auxiliares,
           recibos: parsed.recibos || [],
-          asistencia: parsed.asistencia || []
+          asistencia: parsed.asistencia || [],
+          egresos: parsed.egresos || []
         }
       }
     } catch (e) {
@@ -117,7 +120,8 @@ export async function getDbData() {
       operadoras: parsed.operadoras || initialDbData.operadoras,
       auxiliares: parsed.auxiliares || initialDbData.auxiliares,
       recibos: parsed.recibos || [],
-      asistencia: parsed.asistencia || []
+      asistencia: parsed.asistencia || [],
+      egresos: parsed.egresos || []
     }
   } catch (e) {
     return initialDbData
@@ -136,7 +140,8 @@ export async function saveDbData(data: any) {
     operadoras: data.operadoras || initialDbData.operadoras,
     auxiliares: data.auxiliares || initialDbData.auxiliares,
     recibos: data.recibos || [],
-    asistencia: data.asistencia || []
+    asistencia: data.asistencia || [],
+    egresos: data.egresos || []
   }
 
   // Guardar en la Nube si las llaves de Vercel KV (REST) están configuradas
